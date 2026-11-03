@@ -1143,38 +1143,60 @@ function buildPopupContent(props) {
         content.appendChild(inducedBadge);
     }
 
+    // Phones: magnitude, depth, place and time stay in view; the rest goes under
+    // "More details" so the popup (and its Quake Quest lesson) isn't a wall of facts.
+    // Larger screens keep every row in the same order as before.
+    var more = content;
+    var moreDetails = null;
+    if (compactViewportQuery.matches) {
+        moreDetails = document.createElement("details");
+        moreDetails.className = "popup-more";
+        var moreSummary = document.createElement("summary");
+        moreSummary.textContent = "More details";
+        moreDetails.appendChild(moreSummary);
+        more = document.createElement("div");
+        more.className = "popup-more-grid";
+        moreDetails.appendChild(more);
+        var moreKey = String(props.eventId || props.place || "");
+        moreDetails.open = Boolean(popupMoreOpen[moreKey]); // stays open when USGS details redraw the popup
+        moreDetails.addEventListener("toggle", function () { popupMoreOpen[moreKey] = moreDetails.open; });
+    }
+
     appendPopupRow(content, "Magnitude", formatMagnitudeLabel(props.mag));
     appendPopupRow(content, "Depth", props.depth + " km");
     if (props.felt > 0) {
-        appendPopupRow(content, "Felt reports", props.felt.toLocaleString() + " citizen report(s)", true);
+        appendPopupRow(more, "Felt reports", props.felt.toLocaleString() + " citizen report(s)", true);
     }
     if (props.intensity && props.intensity.label) {
-        appendPopupRow(content, "Shaking intensity", props.intensity.label, true);
+        appendPopupRow(more, "Shaking intensity", props.intensity.label, true);
     }
     if (props.sig > 0) {
-        appendPopupRow(content, "Significance", props.sig + " / 1000", true);
+        appendPopupRow(more, "Significance", props.sig + " / 1000", true);
     }
     if (props.energyLabel) {
-        appendPopupRow(content, "Seismic energy", props.energyLabel, true);
+        appendPopupRow(more, "Seismic energy", props.energyLabel, true);
     }
     appendPopupRow(content, "Country/area", props.displayRegion || "Unknown");
     var typeDisplay = props.type || "earthquake";
     if (props.origin && props.origin.isInduced) {
         typeDisplay = "⛏️ " + props.origin.category + " (Human-Induced)";
     }
-    appendPopupRow(content, "Type", typeDisplay);
+    appendPopupRow(more, "Type", typeDisplay);
     appendPopupRow(content, "Time", eventTime, true);
     if (props.enrichmentState === "loading") {
-        appendPopupRow(content, "USGS context", "Loading scientific details…", true);
+        appendPopupRow(more, "USGS context", "Loading scientific details…", true);
     }
     if (Array.isArray(props.faults) && props.faults.length) {
-        appendPopupRow(content, "Named fault/zone", props.faults.join(", "), true);
+        appendPopupRow(more, "Named fault/zone", props.faults.join(", "), true);
     }
     if (Array.isArray(props.plates) && props.plates.length) {
-        appendPopupRow(content, "Tectonic plates", props.plates.join(", "), true);
+        appendPopupRow(more, "Tectonic plates", props.plates.join(", "), true);
     }
     if (props.tectonicContext) {
-        appendPopupRow(content, "Plate tectonics", props.tectonicContext, true);
+        appendPopupRow(more, "Plate tectonics", props.tectonicContext, true);
+    }
+    if (moreDetails && more.childNodes.length) {
+        content.appendChild(moreDetails);
     }
     if (props.eventId && getExplainApiUrl()) {
         var explainSection = document.createElement("div");
@@ -1344,6 +1366,8 @@ function setActiveQuakePopup(popup) {
 
 // the open quake popup's latest properties, so it can be redrawn (Quake Quest answers)
 var lastQuakePopupProps = null;
+// phones: which popups have "More details" open (by event id), kept across redraws
+var popupMoreOpen = {};
 function refreshQuakePopup() {
     if (!activeQuakePopup || !activeQuakePopup.isOpen() || !lastQuakePopupProps) return;
     activeQuakePopup.setDOMContent(buildPopupContent(lastQuakePopupProps));

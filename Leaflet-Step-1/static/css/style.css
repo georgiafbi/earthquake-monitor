@@ -1523,6 +1523,11 @@ body {
   z-index: 2;
 }
 
+/* display:flex above would otherwise override the hidden attribute (✕ with an empty box) */
+.clear-search-btn[hidden] {
+  display: none;
+}
+
 .clear-search-btn:hover {
   background: rgba(239, 68, 68, 0.8);
   color: #fff;
@@ -2230,6 +2235,12 @@ body {
   padding: 8px 14px;
   box-shadow: 0 8px 20px rgba(2, 6, 23, 0.4);
   animation: slide-down 0.25s ease-out;
+}
+
+/* display:flex above would otherwise override the hidden attribute: the bar
+   showed "Playback: 0%" even when no timelapse was running */
+.timelapse-bar[hidden] {
+  display: none;
 }
 
 @keyframes slide-down {

@@ -32,6 +32,11 @@
     ["Android S landscape", 780, 360], ["Pixel landscape", 915, 412], ["iPhone SE landscape", 667, 375]
   ];
   var params = new URLSearchParams(location.search);
+  // ?only=1,4 keeps just those sizes (0-5 in the order above), e.g. to view them at full scale
+  if (params.get("only")) {
+    var keep = params.get("only").split(",").map(Number);
+    SIZES = SIZES.filter(function (s, i) { return keep.indexOf(i) !== -1; });
+  }
   var url = params.get("url") || "/index.html";
   var scale = Number(params.get("scale") || 0.5);
   var grid = document.getElementById("grid");
