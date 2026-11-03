@@ -10,7 +10,7 @@
   - USGS Earthquake Catalog API (GeoJSON event feed)
 
 ## Hosting
-- **Cloudflare Worker** (`worker/`): serves the repo root as static assets (exclusions in `.assetsignore`) and `/api/explain`, the Claude quake explainer. The Anthropic key is a Worker secret. See `worker/README.md`.
+- **Cloudflare Worker** (`worker/`, deploys on every push to master): serves the repo root as static assets (exclusions in `.assetsignore`) and `/api/explain`, the Claude quake explainer. The Anthropic key is a Worker secret. See `worker/README.md`.
 - GitHub Pages copies of the site hide the Explain button (no API there).
 
 ## Tooling & Commands
