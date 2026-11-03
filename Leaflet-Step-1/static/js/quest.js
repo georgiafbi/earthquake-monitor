@@ -268,6 +268,7 @@
         }
         try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* private mode: play without saving */ }
         renderChip();
+        if (typeof scheduleCloudSave === "function") scheduleCloudSave();
     }
 
     function rankIndex(xp) {
@@ -323,6 +324,7 @@
             state.stats.streak = 0; daily.streakToday = 0;
         }
         state.answers[c.id] = { k: q.kind, g: guess, a: q.answer, ok: ok, t: Date.now() };
+        queueLog(c.id, state.answers[c.id]);
 
         // deed counters (what kinds of quakes you've predicted)
         if (c.depth >= 70) state.stats.deepPredictions++;
@@ -432,6 +434,138 @@
     function shipName(i) {
         var fleet = typeof SATELLITE_FLEET !== "undefined" ? SATELLITE_FLEET : null;
         return fleet && fleet[i] ? fleet[i].name : null;
+    }
+
+    // ================================================================ gamer tags (Emberkite accounts)
+    // One tag for every Emberkite game: tags, PINs, recovery and transfer codes are handled
+    // by Bhalo's Airship Dash's API (the shared player database); Quake Quest's own cloud
+    // save, activity log and leaderboard are on this site's Worker (/api/quest/*).
+    var ACCOUNT_KEY = "emberkite.player";
+    var LOG_QUEUE_KEY = "quakeQuest.logQueue";
+    var ON_LOCALHOST = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    var ID_API = (function () {
+        var url = "https://airshipdash.emberkitegames.com/api";
+        if (ON_LOCALHOST) { try { url = localStorage.getItem("emberkite.idApi") || url; } catch (e) { /* ignore */ } } // tests point it at a local emulator
+        return url;
+    }());
+    var QUEST_API = location.port === "3000" && ON_LOCALHOST ? "http://localhost:8787/api/quest" : "/api/quest";
+    var accountsAvailable = !/\.github\.io$/.test(location.hostname);
+
+    function lsRead(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; } }
+    function lsWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ } }
+    var account = lsRead(ACCOUNT_KEY, null); // { id, tag, hasPin, token }
+    function signedIn() { return Boolean(account && account.tag && account.token); }
+
+    function post(url, body) {
+        return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+            .then(function (r) {
+                return r.json().catch(function () { return {}; }).then(function (data) {
+                    return r.ok ? { ok: true, data: data } : { ok: false, status: r.status, error: data.error || "Something went wrong." };
+                });
+            })
+            .catch(function () { return { ok: false, offline: true, error: "Can't reach the player service right now. Your progress stays on this device." }; });
+    }
+
+    // ---- merging this device's progress with the cloud's: nothing earned is ever lost
+    function mergeStates(local, cloud) {
+        var out = JSON.parse(JSON.stringify(local));
+        if (!cloud || cloud.v !== 1) return out;
+        out.xp = Math.max(local.xp || 0, cloud.xp || 0);
+        Object.keys(cloud.stats || {}).forEach(function (k) { out.stats[k] = Math.max(out.stats[k] || 0, cloud.stats[k] || 0); });
+        ["collected", "badges", "answers"].forEach(function (k) {
+            Object.keys(cloud[k] || {}).forEach(function (key) { if (!out[k][key]) out[k][key] = cloud[k][key]; });
+        });
+        (cloud.ships || []).forEach(function (i) { if (out.ships.indexOf(i) === -1) out.ships.push(i); });
+        out.picksUsed = Math.max(local.picksUsed || 0, cloud.picksUsed || 0);
+        if (out.ships.indexOf(out.ship) === -1) out.ship = out.ships.length ? out.ships[0] : null;
+        if (cloud.daily && (!local.daily || cloud.daily.date > local.daily.date
+            || (cloud.daily.date === local.daily.date && (cloud.daily.predictedToday || 0) > (local.daily.predictedToday || 0)))) out.daily = cloud.daily;
+        out.introSeen = true;
+        out.fleetIntroSeen = local.fleetIntroSeen || cloud.fleetIntroSeen;
+        return out;
+    }
+
+    var cloudTimer = null;
+    var cloudStatus = ""; // shown in the Journal
+    function scheduleCloudSave() {
+        if (!signedIn() || !accountsAvailable) return;
+        clearTimeout(cloudTimer);
+        cloudTimer = setTimeout(cloudSave, 2500);
+    }
+    function cloudSave() {
+        if (!signedIn()) return Promise.resolve(false);
+        return post(QUEST_API + "/save", { token: account.token, data: state }).then(function (r) {
+            cloudStatus = r.ok ? "Saved to the cloud " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : r.error;
+            if (r.status === 401) signOut(true);
+            return r.ok;
+        });
+    }
+    function cloudSync() {
+        if (!signedIn() || !accountsAvailable) return Promise.resolve(false);
+        return post(QUEST_API + "/load", { token: account.token }).then(function (r) {
+            if (!r.ok) { cloudStatus = r.error; if (r.status === 401) signOut(true); return false; }
+            state = mergeStates(state, r.data.data);
+            try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+            renderChip(); renderScanButton();
+            return cloudSave().then(function () { flushLog(); return true; });
+        });
+    }
+
+    // ---- the activity log: every prediction, queued here and sent when signed in
+    function queueLog(id, rec) {
+        if (!rec || rec.skip) return;
+        var q = lsRead(LOG_QUEUE_KEY, []);
+        q.push({ id: id, k: rec.k, g: rec.g, a: rec.a, t: rec.t });
+        lsWrite(LOG_QUEUE_KEY, q.slice(-500));
+        flushLog();
+    }
+    var flushing = false;
+    function flushLog() {
+        if (!signedIn() || flushing || !accountsAvailable) return;
+        var q = lsRead(LOG_QUEUE_KEY, []);
+        if (!q.length) return;
+        flushing = true;
+        var batch = q.slice(0, 25);
+        post(QUEST_API + "/log", { token: account.token, entries: batch }).then(function (r) {
+            flushing = false;
+            if (!r.ok) return; // offline or refused: try again later
+            lsWrite(LOG_QUEUE_KEY, lsRead(LOG_QUEUE_KEY, []).slice(batch.length));
+            if (lsRead(LOG_QUEUE_KEY, []).length) flushLog();
+        });
+    }
+    // first sign-in on a device: this device's past predictions go into the log too
+    function backfillLog() {
+        var q = lsRead(LOG_QUEUE_KEY, []);
+        var queued = {};
+        q.forEach(function (e) { queued[e.id] = true; });
+        Object.keys(state.answers).forEach(function (id) {
+            var rec = state.answers[id];
+            if (!rec.skip && rec.k && !queued[id]) q.push({ id: id, k: rec.k, g: rec.g, a: rec.a, t: rec.t });
+        });
+        q.sort(function (a, b) { return a.t - b.t; });
+        lsWrite(LOG_QUEUE_KEY, q.slice(-500));
+    }
+
+    function useAccount(data, how) {
+        account = { id: data.id, tag: data.tag, hasPin: Boolean(data.hasPin), token: data.token };
+        lsWrite(ACCOUNT_KEY, account);
+        backfillLog();
+        cloudStatus = "Syncing…";
+        return cloudSync().then(function () {
+            toast("☁️", (how === "claim" ? "Gamer tag " + account.tag + " is yours" : "Signed in as " + account.tag) + ". Your Quake Quest progress is saved to the cloud.");
+            renderJournal();
+        });
+    }
+    function signOut(expired) {
+        account = null;
+        try { localStorage.removeItem(ACCOUNT_KEY); } catch (e) { /* ignore */ }
+        cloudStatus = expired ? "This device was signed out. Sign in again to keep saving to the cloud." : "";
+        renderJournal();
+    }
+
+    // ---- the leaderboard
+    function loadBoard() {
+        return post(QUEST_API + "/board", signedIn() ? { token: account.token } : {});
     }
 
     // ================================================================ UI helpers
@@ -809,6 +943,7 @@
         bar.appendChild(track);
         bar.appendChild(el("p", "quest-rank-next", next ? (next.xp - state.xp) + " XP to " + next.title : "You command the whole survey fleet!"));
         dlg.appendChild(bar);
+        if (accountsAvailable) dlg.appendChild(renderAccount());
 
         // settings
         var set = el("div", "quest-settings");
@@ -819,7 +954,7 @@
         // tabs
         var tabs = el("div", "quest-tabs");
         tabs.setAttribute("role", "tablist");
-        [["missions", "Missions"], ["guide", "Field Guide"], ["badges", "Badges"], ["fleet", "Fleet"]].forEach(function (t) {
+        [["missions", "Missions"], ["guide", "Field Guide"], ["badges", "Badges"], ["fleet", "Fleet"]].concat(accountsAvailable ? [["leaders", "Leaders"]] : []).forEach(function (t) {
             var b = el("button", "quest-tab" + (journalTab === t[0] ? " is-active" : ""), t[1]);
             b.type = "button";
             b.setAttribute("role", "tab");
@@ -830,9 +965,133 @@
         dlg.appendChild(tabs);
         var panel = el("div", "quest-panel");
         panel.setAttribute("role", "tabpanel");
-        ({ missions: renderMissions, guide: renderGuide, badges: renderBadges, fleet: renderFleet })[journalTab](panel);
+        ({ missions: renderMissions, guide: renderGuide, badges: renderBadges, fleet: renderFleet, leaders: renderLeaders })[journalTab](panel);
         dlg.appendChild(panel);
         ov.appendChild(dlg);
+    }
+
+    // ---- the account panel: claim a tag, sign in (tag + PIN, or a transfer code), or who you are
+    var accountView = "idle";     // idle | claim | signin | code
+    var accountMsg = "";
+    var shownRecovery = null;     // a new recovery code, shown once
+    var draftTag = "";            // kept when a form redraws (after an error)
+    function field(label, attrs) {
+        var wrap = el("label", "quest-field");
+        wrap.appendChild(el("span", "quest-field-label", label));
+        var input = el("input", "quest-input");
+        Object.keys(attrs).forEach(function (k) { input.setAttribute(k, attrs[k]); });
+        wrap.appendChild(input);
+        return { wrap: wrap, input: input };
+    }
+    function renderAccount() {
+        var box = el("div", "quest-account");
+        if (shownRecovery) {
+            box.appendChild(el("p", "quest-account-title", "🔑 Write this recovery code down"));
+            box.appendChild(el("p", "quest-recovery", shownRecovery));
+            box.appendChild(el("p", "quest-note", "If you ever forget your PIN, this code sets a new one. It's shown only now, and it works in Bhalo's Airship Dash too."));
+            box.appendChild(button("I've written it down", "quest-go", function () { shownRecovery = null; renderJournal(); }));
+            return box;
+        }
+        if (signedIn()) {
+            box.appendChild(el("p", "quest-account-title", "🛡️ Playing as " + account.tag));
+            box.appendChild(el("p", "quest-note", (cloudStatus || "Your progress is saved to the cloud.") + " The same tag works in Bhalo's Airship Dash."));
+            var acts = el("div", "quest-account-actions");
+            acts.appendChild(button("Leaderboard", "quest-go", function () { journalTab = "leaders"; renderJournal(); }));
+            acts.appendChild(button("Sign out", "quest-go quest-go-quiet", function () { signOut(false); }));
+            box.appendChild(acts);
+            return box;
+        }
+        if (accountView === "idle") {
+            box.appendChild(el("p", "quest-account-title", "Playing on this device only"));
+            box.appendChild(el("p", "quest-note", "Claim an Emberkite gamer tag to save your progress to the cloud, play on any device and join the leaderboard. Already have one from Bhalo's Airship Dash? Sign in with it."));
+            var a = el("div", "quest-account-actions");
+            a.appendChild(button("Claim a gamer tag", "quest-go", function () { accountView = "claim"; accountMsg = ""; renderJournal(); }));
+            a.appendChild(button("Sign in", "quest-go quest-go-quiet", function () { accountView = "signin"; accountMsg = ""; renderJournal(); }));
+            box.appendChild(a);
+            return box;
+        }
+        var form = el("form", "quest-account-form");
+        form.setAttribute("novalidate", "");
+        var tag = null, pin = null, code = null;
+        if (accountView === "claim") {
+            box.appendChild(el("p", "quest-account-title", "Claim a gamer tag"));
+            box.appendChild(el("p", "quest-note", "3 to 16 letters, numbers, _ or -. Don't use your real name. A 4-digit PIN lets you sign in on other devices."));
+            tag = field("Gamer tag", { autocomplete: "off", maxlength: "16", spellcheck: "false", autocapitalize: "off" });
+            pin = field("PIN (optional, 4 digits)", { inputmode: "numeric", maxlength: "4", autocomplete: "off", pattern: "[0-9]*" });
+            form.appendChild(tag.wrap); form.appendChild(pin.wrap);
+            tag.input.value = draftTag; tag.input.addEventListener("input", function () { draftTag = tag.input.value; });
+        } else if (accountView === "signin") {
+            box.appendChild(el("p", "quest-account-title", "Sign in"));
+            tag = field("Gamer tag", { autocomplete: "username", maxlength: "16", spellcheck: "false", autocapitalize: "off" });
+            pin = field("PIN", { inputmode: "numeric", maxlength: "4", autocomplete: "off", pattern: "[0-9]*" });
+            form.appendChild(tag.wrap); form.appendChild(pin.wrap);
+            tag.input.value = draftTag; tag.input.addEventListener("input", function () { draftTag = tag.input.value; });
+        } else {
+            box.appendChild(el("p", "quest-account-title", "Sign in with a transfer code"));
+            box.appendChild(el("p", "quest-note", "On a device where you're signed in (here or in Bhalo's Airship Dash), ask for a transfer code and type it here within 10 minutes."));
+            code = field("Transfer code", { autocomplete: "off", maxlength: "9", spellcheck: "false", autocapitalize: "characters" });
+            form.appendChild(code.wrap);
+        }
+        if (accountMsg) form.appendChild(el("p", "quest-account-error", accountMsg));
+        var row = el("div", "quest-account-actions");
+        var submit = el("button", "quest-go", accountView === "claim" ? "Claim it" : "Sign in");
+        submit.type = "submit";
+        row.appendChild(submit);
+        if (accountView === "signin") row.appendChild(button("Use a transfer code", "quest-go quest-go-quiet", function () { accountView = "code"; accountMsg = ""; renderJournal(); }));
+        row.appendChild(button("Cancel", "quest-go quest-go-quiet", function () { accountView = "idle"; accountMsg = ""; renderJournal(); }));
+        form.appendChild(row);
+        form.addEventListener("submit", function (e) {
+            e.preventDefault();
+            submit.disabled = true;
+            var call;
+            if (accountView === "claim") {
+                var t = tag.input.value.trim(), p = pin.input.value.trim();
+                if (!/^[A-Za-z0-9_-]{3,16}$/.test(t)) { accountMsg = "A gamer tag is 3 to 16 letters, numbers, _ or -."; renderJournal(); return; }
+                if (p && !/^\d{4}$/.test(p)) { accountMsg = "A PIN is exactly 4 digits."; renderJournal(); return; }
+                call = post(ID_API + "/player", p ? { tag: t, pin: p } : { tag: t }).then(function (r) {
+                    if (r.ok && r.data.recovery) shownRecovery = r.data.recovery;
+                    return r;
+                });
+            } else if (accountView === "signin") {
+                call = post(ID_API + "/login", { tag: tag.input.value.trim(), pin: pin.input.value.trim() });
+            } else {
+                call = post(ID_API + "/redeem", { code: code.input.value.replace(/[^0-9A-Za-z]/g, "") });
+            }
+            call.then(function (r) {
+                if (!r.ok || !r.data.token) { accountMsg = r.error || "That didn't work. Try again."; submit.disabled = false; renderJournal(); return; }
+                var how = accountView === "claim" ? "claim" : "signin";
+                accountView = "idle"; accountMsg = "";
+                useAccount(r.data, how);
+            });
+        });
+        box.appendChild(form);
+        setTimeout(function () { var first = box.querySelector("input"); if (first) first.focus(); }, 0);
+        return box;
+    }
+
+    function renderLeaders(panel) {
+        panel.appendChild(el("p", "quest-note", "Top Quake Quest players by XP. XP on the board can't be higher than the predictions the server has logged for a player."));
+        var list = el("div", "quest-board");
+        list.appendChild(el("p", "quest-note", "Loading…"));
+        panel.appendChild(list);
+        loadBoard().then(function (r) {
+            list.replaceChildren();
+            if (!r.ok) { list.appendChild(el("p", "quest-account-error", r.error)); return; }
+            if (!r.data.top.length) { list.appendChild(el("p", "quest-note", "No one is on the board yet. Claim a gamer tag and make a prediction to be first!")); return; }
+            r.data.top.forEach(function (row) {
+                var item = el("div", "quest-board-row" + (row.you ? " is-you" : ""));
+                item.appendChild(el("span", "quest-board-rank", "#" + row.rank));
+                item.appendChild(el("span", "quest-board-tag", row.tag + (row.you ? " (you)" : "")));
+                item.appendChild(el("span", "quest-board-xp", row.xp.toLocaleString() + " XP"));
+                item.appendChild(el("span", "quest-board-meta", row.predictions + " predictions" + (row.accuracy != null ? " · " + row.accuracy + "% right" : "")));
+                list.appendChild(item);
+            });
+            if (r.data.you && r.data.you.rank > 20) {
+                list.appendChild(el("p", "quest-note", "You: #" + r.data.you.rank + " of " + r.data.players + " with " + r.data.you.xp + " XP."));
+            } else if (!signedIn()) {
+                list.appendChild(el("p", "quest-note", "Claim a gamer tag to join the board."));
+            }
+        });
     }
 
     function segmented(label, options, value, onChange) {
@@ -1011,6 +1270,8 @@
     function init() {
         mountChip();
         mountScanButton();
+        if (signedIn()) cloudSync();                    // progress from your other devices
+        window.addEventListener("online", function () { flushLog(); scheduleCloudSave(); });
         if (!state.introSeen) {
             state.introSeen = true;
             state.fleetIntroSeen = true;
@@ -1037,7 +1298,7 @@
             classifyQuake: classifyQuake, categoriesFor: categoriesFor, buildQuestion: buildQuestion, questionKinds: questionKinds,
             recordAnswer: recordAnswer, rankIndex: rankIndex, ensureDaily: ensureDaily,
             needsStarter: needsStarter, picksAvailable: picksAvailable, chooseShip: chooseShip, owns: owns, scanMatches: scanMatches, awardShipsByDeed: awardShipsByDeed,
-            loadState: loadState
+            loadState: loadState, mergeStates: mergeStates
         }
     };
 }());

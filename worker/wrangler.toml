@@ -37,3 +37,10 @@ namespace_id = "4101"
 
 [observability]
 enabled = true
+
+# Shared Emberkite player database (gamer tags, PINs, device tokens), also used by
+# Bhalo's Airship Dash. Quake Quest keeps its own tables in it (quest_saves, quest_log).
+[[d1_databases]]
+binding = "DB"
+database_name = "bhalo-scores"
+database_id = "1374c095-02d8-4319-89f3-9e42feeebf3b"

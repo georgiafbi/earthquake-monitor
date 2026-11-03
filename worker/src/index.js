@@ -17,6 +17,7 @@ import {
     settleTutorAnswer,
     toParagraphs
 } from "./prompt.js";
+import { handleQuestApi } from "./quest-api.js";
 
 const MODEL = "claude-opus-5-5";
 const PROMPT_VERSION = "v2";       // bump to invalidate every cached explanation
@@ -198,6 +199,15 @@ async function handleTutor(request, env, ctx, origin) {
 }
 
 const ROUTES = { "/api/explain": handleExplain, "/api/tutor": handleTutor };
+// Quake Quest accounts (POST): /api/quest/load, save, log, board
+const QUEST_ROUTE = /^\/api\/quest\/(load|save|log|board)$/;
+function withCors(response, origin) {
+    if (!origin) return response;
+    const r = new Response(response.body, response);
+    Object.entries(corsHeaders(origin)).forEach(function (kv) { r.headers.set(kv[0], kv[1]); });
+    r.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    return r;
+}
 
 export default {
     async fetch(request, env, ctx) {
@@ -205,7 +215,8 @@ export default {
         // Only /api/* reaches this code (run_worker_first); the site itself is
         // served straight from static assets.
         const handler = ROUTES[url.pathname];
-        if (!handler) {
+        const questRoute = QUEST_ROUTE.exec(url.pathname);
+        if (!handler && !questRoute) {
             return json({ error: "Not found." }, 404, null);
         }
         const caller = classifyCaller({
@@ -218,7 +229,15 @@ export default {
         // CORS headers only for allow-listed cross-origin callers.
         const origin = caller === "cross" ? request.headers.get("Origin") : null;
         if (request.method === "OPTIONS") {
-            return new Response(null, { status: 204, headers: origin ? corsHeaders(origin) : {} });
+            return withCors(new Response(null, { status: 204 }), origin);
+        }
+        if (questRoute) {
+            try {
+                return withCors(await handleQuestApi(questRoute[1], request, env, fetchUsgsEvent), origin);
+            } catch (error) {
+                console.error("Quest API failure", url.pathname, error && error.stack || error);
+                return json({ error: "Your progress is kept on this device and will be sent later." }, 500, origin);
+            }
         }
         if (request.method !== "GET") {
             return json({ error: "Use GET." }, 405, origin);

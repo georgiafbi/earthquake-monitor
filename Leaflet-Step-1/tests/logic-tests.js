@@ -1375,6 +1375,28 @@
         });
     });
 
+    test("Quake Quest accounts: merging a device with the cloud never loses anything earned", function () {
+        var base = function () { return { v: 1, on: true, mode: "cadet", xp: 0, ships: [], ship: null, picksUsed: 0, answers: {}, collected: {}, badges: {}, stats: { predictions: 0, deepPredictions: 0 }, daily: null }; };
+        var phone = base(), cloud = base();
+        phone.xp = 120; phone.ships = [4]; phone.ship = 4; phone.collected["depth:deep"] = { id: "a", t: 1 }; phone.answers.a = { k: "depth", g: "deep", a: "deep", ok: true, t: 1 };
+        phone.stats.predictions = 3; phone.daily = { date: "2026-11-03", predictedToday: 3, missions: [], done: {} };
+        cloud.xp = 300; cloud.ships = [2, 4]; cloud.ship = 2; cloud.picksUsed = 1; cloud.badges.first = 1; cloud.collected["kind:subduction"] = { id: "b", t: 2 };
+        cloud.answers.b = { k: "boundary", g: "subduction", a: "subduction", ok: true, t: 2 }; cloud.stats.predictions = 9; cloud.stats.deepPredictions = 2;
+        cloud.daily = { date: "2026-11-02", predictedToday: 9, missions: [], done: {} };
+        var m = QS.mergeStates(phone, cloud);
+        assertEqual(m.xp, 300, "higher XP kept");
+        assertEqual(m.ships.join(","), "4,2", "ships from both, this device's first");
+        assertEqual(m.ship, 4, "this device's ship stays in use");
+        assertEqual(m.picksUsed, 1, "picks used kept");
+        assert(m.collected["depth:deep"] && m.collected["kind:subduction"], "field guide entries from both");
+        assert(m.badges.first, "badges from the cloud");
+        assert(m.answers.a && m.answers.b, "predictions from both");
+        assertEqual(m.stats.predictions, 9, "counters take the larger");
+        assertEqual(m.stats.deepPredictions, 2, "deed counters too");
+        assertEqual(m.daily.date, "2026-11-03", "today's missions win over yesterday's");
+        assertEqual(QS.mergeStates(phone, null).xp, 120, "no cloud save: this device as it is");
+    });
+
     test("Quake Quest fleet: older saves keep their XP, choose a starter, and get a pick per rank", function () {
         var saved = null;
         try { saved = localStorage.getItem("quakeQuest.v1"); } catch (e) { /* ignore */ }
