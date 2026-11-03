@@ -51,10 +51,11 @@
 .quest-skip:focus-visible,
 .quest-tutor-btn:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
 .quest-hint { color: #cbd5e1; font-size: 0.74rem; }
-.quest-hint summary { cursor: pointer; color: #94a3b8; }
+.quest-hint summary { display: flex; align-items: center; min-height: 32px; cursor: pointer; color: #94a3b8; }
 .quest-hint p { margin: 6px 0 0; line-height: 1.4; }
 .quest-skip {
   justify-self: start;
+  min-height: 32px;
   padding: 2px 0;
   border: 0;
   background: none;
@@ -124,9 +125,12 @@
 }
 .quest-overlay[hidden] { display: none; }
 .quest-dialog {
+  box-sizing: border-box; /* the height cap includes the padding */
   width: min(620px, 100%);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px); /* phones: the browser bar can't hide the bottom */
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px;
   border-radius: 16px;
   border: 1px solid rgba(251, 191, 36, 0.35);
@@ -239,4 +243,12 @@
 @media (max-width: 520px) {
   .quest-chip-xp { display: none; }
   .quest-dialog { padding: 14px; }
+}
+/* landscape phones: little height, so tighter spacing around the journal */
+@media (max-height: 500px) {
+  .quest-overlay { padding: 8px; }
+  .quest-dialog { padding: 12px 14px; max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); }
+  .quest-rankbar { margin: 8px 0; }
+  .quest-settings { margin-bottom: 8px; }
+  .quest-toasts { top: 8px; }
 }

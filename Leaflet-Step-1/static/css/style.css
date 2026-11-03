@@ -883,7 +883,7 @@ body {
   }
 }
 
-@media (max-width: 640px), (max-width: 900px) and (max-height: 500px) {
+@media (max-width: 640px), (max-width: 1024px) and (max-height: 500px) {
   .maplibregl-ctrl-group .maplibregl-ctrl-zoom-in,
   .maplibregl-ctrl-group .maplibregl-ctrl-zoom-out {
     display: none !important;
@@ -1299,7 +1299,7 @@ body {
   }
 }
 
-@media (max-width: 900px) and (max-height: 500px) {
+@media (max-width: 1024px) and (max-height: 500px) { /* landscape phones, Pixel XL and iPhone Pro Max (915-932 px) included */
   body {
     padding: 8px;
   }

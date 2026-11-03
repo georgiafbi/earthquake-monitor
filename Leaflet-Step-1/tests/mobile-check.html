@@ -1,0 +1,154 @@
+<!doctype html>
+<!--
+  Mobile layout check: loads a page (same origin) in six phone-sized frames, portrait
+  and landscape, and audits each one. Open as  mobile-check.html?url=/index.html
+  Then run  await mobileCheck.run()  in the console (or let ?auto=1 run it on load);
+  mobileCheck.each(fn) runs fn(frameWindow) in every frame first (to open a menu, etc.).
+  Checks per frame: sideways scrolling, controls off the left/right edge, controls
+  below the screen with nothing to scroll them into view, tap targets under 24 px
+  (WCAG 2.2 target-size minimum) and under 40 px (comfortable thumb size).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mobile layout check</title>
+<style>
+  body { margin: 0; padding: 12px; background: #111827; color: #e5e7eb; font: 13px/1.4 system-ui, sans-serif; }
+  .grid { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  .cell { display: grid; gap: 4px; }
+  .label { font-weight: 700; }
+  .clip { overflow: hidden; border: 2px solid #374151; border-radius: 10px; background: #000; }
+  iframe { border: 0; display: block; transform-origin: 0 0; }
+  .ok { color: #4ade80; } .bad { color: #f87171; } .warn { color: #fbbf24; }
+  pre { white-space: pre-wrap; margin: 0; font-size: 11px; max-width: 460px; }
+</style>
+</head>
+<body>
+<div class="grid" id="grid"></div>
+<script>
+(function () {
+  var SIZES = [
+    ["Android S portrait", 360, 780], ["Pixel portrait", 412, 915], ["iPhone SE portrait", 375, 667],
+    ["Android S landscape", 780, 360], ["Pixel landscape", 915, 412], ["iPhone SE landscape", 667, 375]
+  ];
+  var params = new URLSearchParams(location.search);
+  var url = params.get("url") || "/index.html";
+  var scale = Number(params.get("scale") || 0.5);
+  var grid = document.getElementById("grid");
+  var frames = SIZES.map(function (s) {
+    var cell = document.createElement("div"); cell.className = "cell";
+    var label = document.createElement("div"); label.className = "label"; label.textContent = s[0] + " · " + s[1] + "×" + s[2];
+    var clip = document.createElement("div"); clip.className = "clip";
+    clip.style.width = Math.round(s[1] * scale) + "px"; clip.style.height = Math.round(s[2] * scale) + "px";
+    var f = document.createElement("iframe");
+    f.width = s[1]; f.height = s[2]; f.style.transform = "scale(" + scale + ")";
+    f.src = url;
+    var out = document.createElement("pre");
+    clip.appendChild(f); cell.appendChild(label); cell.appendChild(clip); cell.appendChild(out);
+    grid.appendChild(cell);
+    return { name: s[0], w: s[1], h: s[2], frame: f, out: out };
+  });
+
+  function visible(el, win) {
+    var cs = win.getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return false;
+    var r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return false;
+    // clipped away by a container (a map marker that has flown past the map's edge)
+    for (var p = el.parentElement; p && p !== win.document.body; p = p.parentElement) {
+      var pcs = win.getComputedStyle(p);
+      if (pcs.overflow !== "visible" || pcs.overflowX !== "visible") {
+        var pr = p.getBoundingClientRect();
+        if (r.right <= pr.left || r.left >= pr.right || r.bottom <= pr.top || r.top >= pr.bottom) return false;
+      }
+    }
+    return true;
+  }
+  // the part of el that is actually shown: its box cut down by every clipping container
+  function shownRect(el, win) {
+    var r = el.getBoundingClientRect();
+    var box = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+    for (var p = el.parentElement; p && p !== win.document.body; p = p.parentElement) {
+      var cs = win.getComputedStyle(p);
+      if (cs.overflowX !== "visible") { var pr = p.getBoundingClientRect(); box.left = Math.max(box.left, pr.left); box.right = Math.min(box.right, pr.right); }
+    }
+    return box;
+  }
+  function scrollableAncestor(el, win) {
+    for (var p = el.parentElement; p; p = p.parentElement) {
+      var cs = win.getComputedStyle(p);
+      if (/(auto|scroll)/.test(cs.overflowY) && p.scrollHeight > p.clientHeight + 1) return p;
+    }
+    return null;
+  }
+  function name(el) {
+    return (el.getAttribute("aria-label") || el.textContent || el.value || el.id || el.className || el.tagName).toString().trim().replace(/\s+/g, " ").slice(0, 40);
+  }
+
+  function audit(f) {
+    var win = f.frame.contentWindow, doc = win.document;
+    var vw = win.innerWidth, vh = win.innerHeight;
+    var pageScrollsY = doc.scrollingElement.scrollHeight > vh + 1;
+    var res = { name: f.name, vw: vw, vh: vh, sideways: doc.scrollingElement.scrollWidth > vw + 1, offEdge: [], unreachable: [], tiny: [], small: [] };
+    var controls = doc.querySelectorAll("button, a[href], input, select, textarea, summary, [role=button], [role=tab]");
+    Array.prototype.forEach.call(controls, function (el) {
+      if (!visible(el, win)) return;
+      var r = el.getBoundingClientRect();
+      var scroller = scrollableAncestor(el, win);
+      // horizontally scrolling strips (tabs, chips) are fine if the strip itself scrolls
+      var hScroller = (function () { for (var p = el.parentElement; p; p = p.parentElement) { var cs = win.getComputedStyle(p); if (/(auto|scroll)/.test(cs.overflowX) && p.scrollWidth > p.clientWidth + 1) return p; } return null; }());
+      var shown = shownRect(el, win);
+      if ((shown.left < -1 || shown.right > vw + 1) && !hScroller) res.offEdge.push(name(el));
+      if (r.top >= vh - 1 && !pageScrollsY && !scroller) res.unreachable.push(name(el));
+      // a checkbox or radio inside a <label> is tapped through the whole label
+      var label = /^(checkbox|radio)$/.test(el.type || "") && (el.closest("label") || (el.id && doc.querySelector('label[for="' + el.id + '"]')));
+      var tr = label ? label.getBoundingClientRect() : r;
+      var min = Math.min(tr.width, tr.height);
+      var inline = el.tagName === "A" && win.getComputedStyle(el).display === "inline";
+      if (!inline) {
+        if (min < 24) res.tiny.push(name(el) + " (" + Math.round(r.width) + "×" + Math.round(r.height) + ")");
+        else if (min < 40) res.small.push(name(el));
+      }
+    });
+    return res;
+  }
+
+  function show(f, r) {
+    var lines = [];
+    lines.push((r.sideways ? "✗ scrolls sideways" : "✓ no sideways scroll"));
+    lines.push(r.offEdge.length ? "✗ off the edge: " + r.offEdge.slice(0, 6).join(" | ") : "✓ nothing off the edge");
+    lines.push(r.unreachable.length ? "✗ unreachable below: " + r.unreachable.slice(0, 6).join(" | ") : "✓ everything reachable");
+    lines.push(r.tiny.length ? "✗ under 24px: " + r.tiny.slice(0, 6).join(" | ") : "✓ no tap target under 24px");
+    if (r.small.length) lines.push("· " + r.small.length + " targets 24-39px");
+    f.out.innerHTML = lines.map(function (l) { return '<span class="' + (l[0] === "✗" ? "bad" : l[0] === "·" ? "warn" : "ok") + '">' + l.replace(/</g, "&lt;") + "</span>"; }).join("\n");
+  }
+
+  function ready() {
+    return Promise.all(frames.map(function (f) {
+      return new Promise(function (resolve) {
+        if (f.frame.contentDocument && f.frame.contentDocument.readyState === "complete" && f.frame.contentWindow.location.href !== "about:blank") resolve();
+        else f.frame.addEventListener("load", function () { resolve(); }, { once: true });
+      });
+    }));
+  }
+
+  window.mobileCheck = {
+    frames: frames,
+    ready: ready,
+    each: function (fn) { return Promise.all(frames.map(function (f) { return fn(f.frame.contentWindow, f); })); },
+    run: function () {
+      return ready().then(function () {
+        return frames.map(function (f) { var r = audit(f); show(f, r); return r; });
+      });
+    },
+    summary: function (results) {
+      return results.map(function (r) {
+        return r.name + ": " + [r.sideways ? "SIDEWAYS" : "", r.offEdge.length ? "offEdge=" + r.offEdge.slice(0, 4).join("|") : "", r.unreachable.length ? "unreachable=" + r.unreachable.slice(0, 4).join("|") : "", r.tiny.length ? "tiny=" + r.tiny.slice(0, 4).join("|") : ""].filter(Boolean).join("  ") + (r.sideways || r.offEdge.length || r.unreachable.length || r.tiny.length ? "" : "OK") + " (" + r.small.length + " small)";
+      }).join("\n");
+    }
+  };
+  if (params.get("auto")) ready().then(function () { setTimeout(function () { window.mobileCheck.run(); }, Number(params.get("wait") || 2500)); });
+}());
+</script>
+</body>
+</html>

@@ -52,7 +52,8 @@ const baseStyleIds = {
     outdoors: { id: "outdoors-v11", label: "Terrain" }
 };
 const mapAttribution = 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>';
-const compactViewportQuery = window.matchMedia("(max-width: 640px), (max-width: 900px) and (max-height: 500px)");
+// phones either way up: keep in step with the landscape-phone breakpoint in style.css and mobile.css
+const compactViewportQuery = window.matchMedia("(max-width: 640px), (max-width: 1024px) and (max-height: 500px)");
 const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 const zoomEasterEggs = [
     { key: "closer", zoom: 3.5, message: "Closer look activated. The tectonic plates are pretending not to notice." },
