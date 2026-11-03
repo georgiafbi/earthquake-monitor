@@ -750,6 +750,24 @@
         assert(firstFeature.properties.plateA && firstFeature.properties.plateB, "plate pairings exist");
     });
 
+    test("keeps all seven PB2002 boundary classes, spreading ridges included", function () {
+        var counts = {};
+        window.tectonicPlatesGeoJSON.features.forEach(function (feature) {
+            counts[feature.properties.cls] = (counts[feature.properties.cls] || 0) + 1;
+        });
+        ["SUB", "OCB", "CCB", "OSR", "CRB", "OTF", "CTF"].forEach(function (code) {
+            assert(counts[code] > 0, code + " boundaries present (" + (counts[code] || 0) + ")");
+            assert(helpers.PLATE_CLASSES[code], code + " has a label and a kind");
+        });
+        assert(counts.OSR > 300, "mid-ocean ridges are the most common boundary, not missing");
+        var nazca = window.tectonicPlatesGeoJSON.features.find(function (f) { return f.properties.cls === "SUB" && /\(NZ-SA\)/.test(f.properties.name); });
+        assert(nazca && nazca.properties.sinks === "Nazca Plate", "the Nazca plate is the one sinking under South America");
+        var colors = helpers.plateClassColorExpression("line");
+        assertEqual(colors[colors.indexOf("OSR") + 1], "#7dd3fc", "ridges are drawn blue");
+        assertEqual(colors[colors.indexOf("SUB") + 1], "#fb7185", "subduction zones are drawn red");
+        assert(/fingernails/.test(helpers.describePlateRate(40)), "plate speed gets an everyday comparison");
+    });
+
     test("toggles feed drawer open and closed with synchronized accessibility attributes", function () {
         var drawer = document.getElementById("feed-drawer");
         if (!drawer) {

@@ -895,6 +895,38 @@ function markRegionalChampions(features) {
     });
 }
 
+// ---- plate boundary classes (PB2002, Bird 2003): one colour per kind of motion
+var PLATE_CLASSES = {
+    SUB: { kind: "convergent", label: "Subduction zone", motion: "One plate sinks beneath the other into the mantle, making deep earthquakes, trenches and volcanoes." },
+    OCB: { kind: "collision", label: "Oceanic convergent boundary", motion: "Two plates of ocean floor push together without a clear sinking slab." },
+    CCB: { kind: "collision", label: "Continental collision", motion: "Two continents crush together and buckle upward into mountain ranges." },
+    OSR: { kind: "divergent", label: "Mid-ocean spreading ridge", motion: "Plates pull apart and magma rises to build new ocean floor." },
+    CRB: { kind: "divergent", label: "Continental rift", motion: "A continent is being stretched and pulled apart, opening a rift valley." },
+    OTF: { kind: "transform", label: "Oceanic transform fault", motion: "Plates slide sideways past each other, offsetting the spreading ridge." },
+    CTF: { kind: "transform", label: "Continental transform fault", motion: "Plates grind sideways past each other across land, like the San Andreas Fault." }
+};
+var PLATE_KIND_COLORS = {
+    convergent: { glow: "#f43f5e", line: "#fb7185" },
+    collision: { glow: "#a855f7", line: "#c084fc" },
+    divergent: { glow: "#38bdf8", line: "#7dd3fc" },
+    transform: { glow: "#f59e0b", line: "#fbbf24" }
+};
+function plateClassColorExpression(part) {
+    var expression = ["match", ["get", "cls"]];
+    Object.keys(PLATE_CLASSES).forEach(function (code) {
+        expression.push(code, PLATE_KIND_COLORS[PLATE_CLASSES[code].kind][part]);
+    });
+    expression.push(PLATE_KIND_COLORS.transform[part]);
+    return expression;
+}
+// mm per year, with an everyday comparison (fingernails grow about 35 mm a year)
+function describePlateRate(mmPerYear) {
+    var compare = mmPerYear < 25 ? "slower than your fingernails grow"
+        : mmPerYear < 50 ? "about as fast as your fingernails grow"
+            : "faster than your fingernails grow";
+    return Math.round(mmPerYear) + " mm per year (" + compare + ")";
+}
+
 function appendPopupRow(container, label, value, wide) {
     var row = document.createElement("p");
     row.className = "popup-fact" + (wide ? " popup-fact--wide" : "");
@@ -5251,13 +5283,7 @@ function createMap() {
                     "visibility": platesVisible ? "visible" : "none"
                 },
                 paint: {
-                    "line-color": [
-                        "match",
-                        ["get", "type"],
-                        "Convergent (Subduction / Trench)", "#f43f5e",
-                        "Divergent (Spreading Ridge / Rift)", "#38bdf8",
-                        "#f59e0b"
-                    ],
+                    "line-color": plateClassColorExpression("glow"),
                     "line-width": 5,
                     "line-opacity": 0.45,
                     "line-blur": 2
@@ -5274,13 +5300,7 @@ function createMap() {
                     "visibility": platesVisible ? "visible" : "none"
                 },
                 paint: {
-                    "line-color": [
-                        "match",
-                        ["get", "type"],
-                        "Convergent (Subduction / Trench)", "#fb7185",
-                        "Divergent (Spreading Ridge / Rift)", "#7dd3fc",
-                        "#fbbf24"
-                    ],
+                    "line-color": plateClassColorExpression("line"),
                     "line-width": 1.85,
                     "line-opacity": 0.9,
                     "line-dasharray": [3, 1.5]
@@ -5296,13 +5316,19 @@ function createMap() {
                 var title = document.createElement("h3");
                 title.textContent = props.name || "Tectonic Plate Boundary";
                 popupContent.appendChild(title);
-                if (props.type) appendPopupRow(popupContent, "Boundary type", props.type);
+                var plateClass = PLATE_CLASSES[props.cls];
+                appendPopupRow(popupContent, "Boundary type", plateClass ? plateClass.label : (props.type || "Unknown"), true);
                 if (props.plateA && props.plateB) {
                     appendPopupRow(popupContent, "Plates", props.plateA + " / " + props.plateB, true);
-                } else if (props.plates) {
-                    appendPopupRow(popupContent, "Plates", props.plates, true);
                 }
-                if (props.source) appendPopupRow(popupContent, "Dataset model", props.source, true);
+                if (props.sinks) {
+                    appendPopupRow(popupContent, "Sinking plate", props.sinks + " dives under the other plate", true);
+                }
+                if (Number(props.rate) > 0) {
+                    appendPopupRow(popupContent, "Plate speed", describePlateRate(Number(props.rate)), true);
+                }
+                if (plateClass) appendPopupRow(popupContent, "What happens here", plateClass.motion, true);
+                appendPopupRow(popupContent, "Dataset model", "PB2002 (Bird, 2003)", true);
 
                 new maplibregl.Popup({ maxWidth: "320px", offset: 8 })
                     .setLngLat(event.lngLat)
@@ -6018,6 +6044,9 @@ function wireStatCard(valueId, title, action) {
 window.earthquakeApp = window.earthquakeApp || {};
 window.earthquakeApp.test = {
     buildPopupContent: buildPopupContent,
+    PLATE_CLASSES: PLATE_CLASSES,
+    plateClassColorExpression: plateClassColorExpression,
+    describePlateRate: describePlateRate,
     quakeExplanations: quakeExplanations,
     buildRangeUrl: buildRangeUrl,
     createChampionSelectionRingImage: createChampionSelectionRingImage,
