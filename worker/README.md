@@ -7,8 +7,35 @@ One Cloudflare Worker serves the whole app:
 - **`/api/explain?id=<USGS event id>`**: Claude (`claude-opus-5-5`, low
   effort) explains one quake in three plain-English paragraphs. It powers the
   **✨ Explain this quake** button in the map popup.
+- **`/api/quest/load|save|log|board`** (POST): Quake Quest gamer tags.
 
 The Anthropic API key is a Worker secret and never reaches the browser.
+
+## Quake Quest gamer tags
+
+Players use the same **Emberkite gamer tag** as Airship Dash. Claiming,
+PIN sign-in, recovery and transfer codes are all handled by Airship Dash's
+API (`https://airshipdash.emberkitegames.com/api/...`, which allows this
+site's origin); this Worker only checks the device token it hands out,
+against the same D1 database (`bhalo-scores`, binding `DB`). Tables
+`quest_saves` and `quest_log` are created on first use (`src/quest-api.js`).
+
+- **Cloud save**: one JSON blob per player (64 KB cap). Signing in on a
+  device merges local and cloud progress, keeping the best of each.
+- **Activity log**: one row per player per quake (`INSERT OR IGNORE`), sent
+  in batches of 25 and queued in the browser while offline. Depth answers
+  are re-checked against USGS; energy answers are always correct; boundary
+  answers are kept but marked unchecked. The newest 5,000 per player stay.
+- **Leaderboard**: top 20 plus your own place. XP counts only up to
+  `25 × predictions + 375 + 350 + 120 × active days`, so an edited save
+  can't top it. Tester tags are left out.
+- **Admin**: Airship Dash's admin page has a Quake Quest card (players, XP
+  warnings, each player's log, reset).
+
+Locally, run Airship Dash's emulator with `--d1 DB=<this database id>` and
+this Worker with the same `--persist-to` folder so both see one database;
+on `localhost:3000` the game uses `localStorage['emberkite.idApi']` (e.g.
+`http://127.0.0.1:8788/api`) for the identity API.
 
 ## Safety and cost controls
 
