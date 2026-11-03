@@ -10,10 +10,10 @@
   <meta http-equiv="Expires" content="0" />
   <title>Earthquake Monitor</title>
   <script>
-    // The app lives on Cloudflare (with the Claude explainer); GitHub Pages copies forward there.
-    // Update this URL when the custom domain is connected.
-    if (location.hostname === "georgiafbi.github.io") {
-      location.replace("https://earthquake-monitor.georgiafbi.workers.dev/" + location.search + location.hash);
+    // One public address: GitHub Pages copies and the workers.dev address forward
+    // to the custom domain (which also has the Claude explainer).
+    if (location.hostname === "georgiafbi.github.io" || location.hostname === "earthquake-monitor.georgiafbi.workers.dev") {
+      location.replace("https://quakes.emberkitegames.com/" + location.search + location.hash);
     }
   </script>
 

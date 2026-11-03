@@ -8,6 +8,11 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true      # https://earthquake-monitor.georgiafbi.workers.dev
 preview_urls = false    # no public per-version preview URLs
 
+# Main address. Cloudflare creates the DNS record and certificate itself.
+routes = [
+  { pattern = "quakes.emberkitegames.com", custom_domain = true }
+]
+
 [assets]
 directory = ".."            # the repo root; exclusions in ../.assetsignore
 binding = "ASSETS"
