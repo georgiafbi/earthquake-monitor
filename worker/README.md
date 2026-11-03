@@ -36,9 +36,18 @@ npm install
 npm test                                   # unit tests for the prompt and caller helpers
 CLOUDFLARE_INCLUDE_PROCESS_ENV=true npm run dev   # site + API at http://localhost:8787, uses $ANTHROPIC_API_KEY
 npx wrangler login                         # once
-npx wrangler secret put ANTHROPIC_API_KEY  # once; paste the key at the prompt
-npm run deploy
+npm run deploy                             # manual; normally not needed (see Deploys)
 ```
+
+The API key is a Worker secret. Set or change it in the Cloudflare dashboard
+(Worker → Settings → Variables and Secrets): `wrangler secret put` run without
+a terminal prompt stores an empty value.
 
 `npm start` at the repo root (port 3000) still works for the site and the
 browser tests; its Explain button calls the dev Worker on port 8787.
+
+## Deploys
+
+Pushing to `master` deploys automatically (Cloudflare Workers Builds, root
+directory `worker`, command `npx wrangler deploy`). Preview builds of other
+branches are off. Watch builds under the Worker's **Deployments** tab.
