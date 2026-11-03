@@ -1123,6 +1123,44 @@
         assertEqual(inducedOnly[0].properties.place, "Quarry Site", "correct induced feature retained");
     });
 
+    test("hides the Claude explainer when no Worker URL is configured", function () {
+        var popup = helpers.buildPopupContent({ place: "Test", mag: 4, depth: 10, time: 0, eventId: "us0001" });
+        assert(!popup.querySelector(".quake-explain"), "no explain section without EXPLAIN_API_URL");
+    });
+
+    test("renders each Claude explainer state from the per-event cache", function () {
+        window.EXPLAIN_API_URL = "http://localhost:8787/explain";
+        try {
+            var base = { place: "Test", mag: 4, depth: 10, time: 0 };
+            var fresh = helpers.buildPopupContent(Object.assign({ eventId: "us0002" }, base));
+            var button = fresh.querySelector(".quake-explain-btn");
+            assert(button, "explain button shown for an event id");
+            assertEqual(button.textContent, "✨ Explain this quake", "button label");
+
+            assert(!helpers.buildPopupContent(base).querySelector(".quake-explain"), "no section without an event id");
+
+            helpers.quakeExplanations.set("us0003", { state: "loading", promise: new Promise(function () {}) });
+            var loading = helpers.buildPopupContent(Object.assign({ eventId: "us0003" }, base)).querySelector(".quake-explain");
+            assertEqual(loading.getAttribute("aria-busy"), "true", "loading marks the section busy");
+            assert(!loading.querySelector("button"), "no button while loading");
+
+            helpers.quakeExplanations.set("us0004", { state: "done", paragraphs: ["One <b>.", "Two."], promise: Promise.resolve() });
+            var done = helpers.buildPopupContent(Object.assign({ eventId: "us0004" }, base)).querySelector(".quake-explain");
+            var paras = done.querySelectorAll(".quake-explain-body p");
+            assertEqual(paras.length, 2, "one element per paragraph");
+            assertEqual(paras[0].textContent, "One <b>.", "model text is inserted as text, never HTML");
+            assert(done.querySelector(".quake-explain-note"), "AI disclosure note shown");
+
+            helpers.quakeExplanations.set("us0005", { state: "error", error: "Too many new explanations right now.", promise: Promise.resolve() });
+            var failed = helpers.buildPopupContent(Object.assign({ eventId: "us0005" }, base)).querySelector(".quake-explain");
+            assertEqual(failed.querySelector(".quake-explain-error").textContent, "Too many new explanations right now.", "server error shown");
+            assertEqual(failed.querySelector("button").textContent, "Try again", "retry button after an error");
+        } finally {
+            delete window.EXPLAIN_API_URL;
+            ["us0003", "us0004", "us0005"].forEach(function (id) { helpers.quakeExplanations.delete(id); });
+        }
+    });
+
     test("produces explosive audio profile for human-induced events", function () {
         var naturalProfile = helpers.getSeismicAudioProfile(3.0, 5, false, false);
         var inducedProfile = helpers.getSeismicAudioProfile(3.0, 5, false, true);

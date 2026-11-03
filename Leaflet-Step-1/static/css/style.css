@@ -694,6 +694,9 @@ body {
 
 .maplibregl-popup {
   max-width: 280px !important;
+  /* Above the map legend and panels, like airship popups, so a popup that
+     opens near the bottom of the map stays clickable (Explain button). */
+  z-index: 1000;
 }
 
 .maplibregl-popup-anchor-top .maplibregl-popup-tip,
@@ -800,6 +803,78 @@ body {
 
 .popup-fact--wide {
   grid-column: 1 / -1;
+}
+
+/* Claude quake explainer */
+.quake-explain {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.quake-explain-btn {
+  justify-self: start;
+  padding: 7px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.55);
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.16);
+  color: #e0f2fe;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.quake-explain-btn:hover {
+  background: rgba(14, 165, 233, 0.28);
+}
+
+.quake-explain-btn:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 2px;
+}
+
+.quake-explain-heading {
+  color: #94a3b8;
+  font-size: 0.59rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.quake-explain-body {
+  padding-right: 4px;
+}
+
+.quake-explain-body p {
+  margin: 0 0 7px;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.quake-explain-status,
+.quake-explain-note {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.quake-explain-error {
+  color: #fca5a5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .quake-explain[aria-busy="true"] .quake-explain-status {
+    animation: quake-explain-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes quake-explain-pulse {
+  50% { opacity: 0.45; }
 }
 
 @media (max-width: 900px) {

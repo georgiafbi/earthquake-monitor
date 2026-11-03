@@ -1126,7 +1126,152 @@ function buildPopupContent(props) {
     if (props.tectonicContext) {
         appendPopupRow(content, "Plate tectonics", props.tectonicContext, true);
     }
+    if (props.eventId && getExplainApiUrl()) {
+        var explainSection = document.createElement("div");
+        explainSection.className = "quake-explain";
+        explainSection.setAttribute("aria-live", "polite");
+        renderExplainSection(explainSection, String(props.eventId));
+        content.appendChild(explainSection);
+    }
     return content;
+}
+
+// ---- Claude quake explainer -------------------------------------------------
+// The popup asks a Cloudflare Worker (explainer-worker/) for a plain-English
+// explanation. Only the USGS event id is sent; the Worker fetches the facts
+// itself and holds the API key. Results are kept per event for the session so
+// reopening a popup, or the popup re-rendering after USGS enrichment, never
+// triggers a second request.
+var quakeExplanations = new Map();
+
+// The map clips overflow, and MapLibre picks a popup's anchor only when it
+// opens, so a popup that grows (USGS context, an explanation) can run off the
+// bottom edge. Pan just enough to bring it back, preferring its top edge.
+function keepQuakePopupInView() {
+    if (!activeQuakePopup || !activeQuakePopup.isOpen() || !globeMap) {
+        return;
+    }
+    var popupElement = activeQuakePopup.getElement();
+    var mapRect = globeMap.getContainer().getBoundingClientRect();
+    var margin = 12;
+    // A popup taller than the map can never fit by panning; cap it and let
+    // its content scroll instead. The tip sits outside the content box, so
+    // measure that overhead rather than guessing it.
+    var content = popupElement.querySelector(".maplibregl-popup-content");
+    if (content) {
+        content.style.boxSizing = "border-box";
+        content.style.maxHeight = "";
+        var overhead = popupElement.getBoundingClientRect().height - content.getBoundingClientRect().height;
+        content.style.maxHeight = Math.max(160, mapRect.height - margin * 2 - overhead) + "px";
+        content.style.overflowY = "auto";
+    }
+    var popupRect = popupElement.getBoundingClientRect();
+    var dy = 0;
+    if (popupRect.bottom > mapRect.bottom - margin) {
+        dy = popupRect.bottom - (mapRect.bottom - margin);
+    }
+    if (popupRect.top - dy < mapRect.top + margin) {
+        dy = popupRect.top - (mapRect.top + margin);
+    }
+    if (Math.abs(dy) > 1) {
+        var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        globeMap.panBy([0, dy], { duration: reduceMotion ? 0 : 350 });
+    }
+}
+
+function getExplainApiUrl() {
+    return typeof EXPLAIN_API_URL === "string" && EXPLAIN_API_URL ? EXPLAIN_API_URL : null;
+}
+
+function requestQuakeExplanation(eventId) {
+    var existing = quakeExplanations.get(eventId);
+    if (existing && existing.state !== "error") {
+        return existing.promise;
+    }
+    var entry = { state: "loading" };
+    entry.promise = fetch(getExplainApiUrl() + "?id=" + encodeURIComponent(eventId))
+        .then(function (response) {
+            return response.json().catch(function () { return {}; }).then(function (body) {
+                if (!response.ok || !Array.isArray(body.paragraphs)) {
+                    throw new Error(body.error || "The explainer is unavailable right now.");
+                }
+                return body;
+            });
+        })
+        .then(function (body) {
+            entry.state = "done";
+            entry.paragraphs = body.paragraphs;
+            return entry;
+        })
+        .catch(function (error) {
+            entry.state = "error";
+            entry.error = error && error.message && !/fetch/i.test(error.message)
+                ? error.message
+                : "Couldn't reach the explainer. Check your connection and try again.";
+            return entry;
+        });
+    quakeExplanations.set(eventId, entry);
+    return entry.promise;
+}
+
+function renderExplainSection(section, eventId) {
+    section.replaceChildren();
+    var entry = quakeExplanations.get(eventId);
+
+    if (entry && entry.state === "loading") {
+        section.setAttribute("aria-busy", "true");
+        var loading = document.createElement("p");
+        loading.className = "quake-explain-status";
+        loading.textContent = "Claude is reading the USGS record…";
+        section.appendChild(loading);
+        // The popup may be rebuilt while we wait; only the live copy updates.
+        entry.promise.then(function () {
+            if (section.isConnected) {
+                renderExplainSection(section, eventId);
+            }
+        });
+        return;
+    }
+    section.removeAttribute("aria-busy");
+
+    if (entry && entry.state === "done") {
+        var heading = document.createElement("strong");
+        heading.className = "quake-explain-heading";
+        heading.textContent = "In plain English";
+        section.appendChild(heading);
+        var body = document.createElement("div");
+        body.className = "quake-explain-body";
+        entry.paragraphs.forEach(function (text) {
+            var para = document.createElement("p");
+            para.textContent = text;
+            body.appendChild(para);
+        });
+        section.appendChild(body);
+        var note = document.createElement("p");
+        note.className = "quake-explain-note";
+        note.textContent = "Written by Claude from USGS data. It can make mistakes; check official sources for warnings.";
+        section.appendChild(note);
+        if (section.isConnected) {
+            requestAnimationFrame(keepQuakePopupInView);
+        }
+        return;
+    }
+
+    if (entry && entry.state === "error") {
+        var errorText = document.createElement("p");
+        errorText.className = "quake-explain-status quake-explain-error";
+        errorText.textContent = entry.error;
+        section.appendChild(errorText);
+    }
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "quake-explain-btn";
+    button.textContent = entry && entry.state === "error" ? "Try again" : "✨ Explain this quake";
+    button.addEventListener("click", function () {
+        requestQuakeExplanation(eventId);
+        renderExplainSection(section, eventId);
+    });
+    section.appendChild(button);
 }
 
 function setActiveQuakePopup(popup) {
@@ -1155,6 +1300,13 @@ function openQuakePopup(coordinates, properties) {
 
     setActiveQuakePopup(popup);
     popup.addTo(globeMap);
+    // Wait for any fly-to in progress, then make sure the whole popup
+    // (including the Explain button) is inside the map, not clipped.
+    if (globeMap.isMoving()) {
+        globeMap.once("moveend", keepQuakePopupInView);
+    } else {
+        requestAnimationFrame(keepQuakePopupInView);
+    }
 
     if (properties.detail) {
         getEventDetail(properties.detail).then(function (metadata) {
@@ -5852,6 +6004,7 @@ function wireStatCard(valueId, title, action) {
 window.earthquakeApp = window.earthquakeApp || {};
 window.earthquakeApp.test = {
     buildPopupContent: buildPopupContent,
+    quakeExplanations: quakeExplanations,
     buildRangeUrl: buildRangeUrl,
     createChampionSelectionRingImage: createChampionSelectionRingImage,
     createEpicenterImage: createEpicenterImage,
