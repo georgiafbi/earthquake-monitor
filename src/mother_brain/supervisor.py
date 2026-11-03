@@ -80,7 +80,7 @@ class LeafletChallengeMotherBrain:
 
         if has_changes:
             subprocess.run(["git", "-C", p_str, "add", "-A"], check=True)
-            msg = commit_message or f"chore(autonomous-sync): leaflet-challenge updates [{now_str}]"
+            msg = commit_message or f"chore(autonomous-sync): earthquake-monitor updates [{now_str}]"
             subprocess.run(["git", "-C", p_str, "commit", "-m", msg], capture_output=True)
 
         res_push = subprocess.run(["git", "-C", p_str, "push", "origin", "HEAD"], capture_output=True, text=True)

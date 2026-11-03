@@ -1,0 +1,32 @@
+# One Worker serves the whole Earthquake Monitor: the static site from the repo
+# root, plus /api/explain (Claude explains a quake). Static files never run the
+# Worker; only /api/* does.
+name = "earthquake-monitor"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = ".."            # the repo root; exclusions in ../.assetsignore
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# ANTHROPIC_API_KEY is a secret: `npx wrangler secret put ANTHROPIC_API_KEY`.
+# Never put it in this file; this repo is public.
+
+[vars]
+# Cross-origin callers allowed besides the site itself (the site's own pages
+# are same-origin and always allowed). localhost:3000 is `npm start` + tests.
+ALLOWED_ORIGINS = "http://localhost:3000"
+
+# New explanations (cache misses) per visitor IP. Cached ones are free and unlimited.
+[[ratelimits]]
+name = "EXPLAIN_LIMITER"
+namespace_id = "4101"
+
+  [ratelimits.simple]
+  limit = 6
+  period = 60
+
+[observability]
+enabled = true

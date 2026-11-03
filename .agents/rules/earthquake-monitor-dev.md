@@ -9,9 +9,14 @@
   - PB2002 dataset (`plates-data.js` for tectonic plate boundary overlays)
   - USGS Earthquake Catalog API (GeoJSON event feed)
 
+## Hosting
+- **Cloudflare Worker** (`worker/`): serves the repo root as static assets (exclusions in `.assetsignore`) and `/api/explain`, the Claude quake explainer. The Anthropic key is a Worker secret. See `worker/README.md`.
+- GitHub Pages copies of the site hide the Explain button (no API there).
+
 ## Tooling & Commands
 - **Local Dev Server**: `npm start` or `npm run dev` (starts zero-dependency static server on `http://localhost:3000`)
-- **Automated Test Suite**: `npm test` (executes all 42 regression tests headlessly via `scripts/run-tests.js` in < 1.5s)
+- **Worker Dev Server**: `npm run dev` in `worker/` (site + API on `http://localhost:8787`)
+- **Automated Test Suite**: `npm test` (browser regression tests headlessly via `scripts/run-tests.js`); `npm test` in `worker/` for the Worker
 - **Browser Tests**: Open `http://localhost:3000/Leaflet-Step-1/tests/logic-tests.html`
 
 ## Quality & Accessibility Requirements

@@ -1,14 +1,14 @@
 # 📱 Android Cross-Platform Earthquake Monitor Improvement Specification
 
 **Document Version**: `1.0.0`  
-**Originating Web App**: `leaflet-challenge` (`origin master`)  
+**Originating Web App**: `earthquake-monitor` (formerly `leaflet-challenge`, `origin master`)  
 **Target Android App**: `earthquake-android` (`origin main`)  
 **Specification Date**: September 14, 2026  
 
 ---
 
 ## 1. Executive Summary
-This specification documents the features, data structures, and user experience enhancements autonomously developed in the **Web-based Earthquake Monitor** (`leaflet-challenge`) for adoption and parity in the native **Android Earthquake Monitor** (`earthquake-android`).
+This specification documents the features, data structures, and user experience enhancements autonomously developed in the **Web-based Earthquake Monitor** (`earthquake-monitor`) for adoption and parity in the native **Android Earthquake Monitor** (`earthquake-android`).
 
 Key additions include:
 1. **USGS PAGER Emergency Impact Badges** (green, yellow, orange, red loss/casualty alerts).

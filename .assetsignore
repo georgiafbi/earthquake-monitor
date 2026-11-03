@@ -1,0 +1,20 @@
+# Files in the repo that are NOT part of the public website.
+# The Cloudflare Worker (worker/wrangler.toml) serves the repo root as static
+# assets; everything listed here is left out of the upload.
+.git
+.gitignore
+.assetsignore
+.agents
+.copilot
+worker
+node_modules
+src
+scripts
+reports
+docs
+cli.py
+package.json
+package-lock.json
+__pycache__
+*.pyc
+Leaflet-Step-1/tests

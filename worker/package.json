@@ -1,7 +1,7 @@
 {
-  "name": "earthquake-explainer",
+  "name": "earthquake-monitor-worker",
   "version": "1.0.0",
-  "description": "Cloudflare Worker: Claude explains a USGS earthquake",
+  "description": "Cloudflare Worker: serves Earthquake Monitor and its Claude explainer API",
   "directories": {
     "test": "test"
   },

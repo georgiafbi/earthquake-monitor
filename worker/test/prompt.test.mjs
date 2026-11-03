@@ -4,6 +4,7 @@ import {
     EVENT_ID_PATTERN,
     buildQuakeFacts,
     extractTectonicSummary,
+    classifyCaller,
     isAllowedOrigin,
     toParagraphs,
     tntEquivalent
@@ -83,4 +84,15 @@ test("origin allow-list is exact", () => {
     assert.ok(isAllowedOrigin("http://localhost:3000", list));
     assert.ok(!isAllowedOrigin("https://georgiafbi.github.io.evil.com", list));
     assert.ok(!isAllowedOrigin(null, list));
+});
+
+test("same-origin pages are allowed even without an Origin header", () => {
+    const self = "https://quakes.example.com";
+    const list = "http://localhost:3000";
+    assert.equal(classifyCaller({ origin: null, secFetchSite: "same-origin" }, self, list), "same");
+    assert.equal(classifyCaller({ origin: self, secFetchSite: "same-origin" }, self, list), "same");
+    assert.equal(classifyCaller({ origin: "http://localhost:3000", secFetchSite: "cross-site" }, self, list), "cross");
+    assert.equal(classifyCaller({ origin: "https://hotlinker.example", secFetchSite: "cross-site" }, self, list), null);
+    assert.equal(classifyCaller({ origin: null, secFetchSite: null }, self, list), null);
+    assert.equal(classifyCaller({ origin: null, secFetchSite: "cross-site" }, self, list), null);
 });

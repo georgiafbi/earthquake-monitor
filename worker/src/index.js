@@ -8,7 +8,7 @@ import {
     EVENT_ID_PATTERN,
     SYSTEM_PROMPT,
     buildQuakeFacts,
-    isAllowedOrigin,
+    classifyCaller,
     toParagraphs
 } from "./prompt.js";
 
@@ -154,18 +154,23 @@ async function handleExplain(request, env, ctx, origin) {
 
 export default {
     async fetch(request, env, ctx) {
-        const origin = request.headers.get("Origin");
-        const allowed = isAllowedOrigin(origin, env.ALLOWED_ORIGINS);
         const url = new URL(request.url);
-
-        if (url.pathname !== "/explain") {
-            return new Response("Not found", { status: 404 });
+        // Only /api/* reaches this code (run_worker_first); the site itself is
+        // served straight from static assets.
+        if (url.pathname !== "/api/explain") {
+            return json({ error: "Not found." }, 404, null);
         }
-        if (!allowed) {
+        const caller = classifyCaller({
+            origin: request.headers.get("Origin"),
+            secFetchSite: request.headers.get("Sec-Fetch-Site")
+        }, url.origin, env.ALLOWED_ORIGINS);
+        if (!caller) {
             return json({ error: "Origin not allowed." }, 403, null);
         }
+        // CORS headers only for allow-listed cross-origin callers.
+        const origin = caller === "cross" ? request.headers.get("Origin") : null;
         if (request.method === "OPTIONS") {
-            return new Response(null, { status: 204, headers: corsHeaders(origin) });
+            return new Response(null, { status: 204, headers: origin ? corsHeaders(origin) : {} });
         }
         if (request.method !== "GET") {
             return json({ error: "Use GET." }, 405, origin);

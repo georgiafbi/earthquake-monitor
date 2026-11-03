@@ -138,3 +138,15 @@ export function isAllowedOrigin(origin, allowedList) {
         .filter(Boolean)
         .includes(origin);
 }
+
+// "same": the site's own page (browsers usually omit Origin on same-origin GETs,
+// but always send Sec-Fetch-Site). "cross": an allow-listed other origin, which
+// needs CORS headers. null: refuse. This is a courtesy gate against hotlinking,
+// not security; the id-only input and the rate limit are the real guards.
+export function classifyCaller(headers, selfOrigin, allowedList) {
+    const origin = headers.origin || null;
+    if (origin === selfOrigin || (!origin && headers.secFetchSite === "same-origin")) {
+        return "same";
+    }
+    return isAllowedOrigin(origin, allowedList) ? "cross" : null;
+}

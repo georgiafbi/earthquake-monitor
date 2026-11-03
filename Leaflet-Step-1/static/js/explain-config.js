@@ -1,7 +1,10 @@
-// Claude quake explainer (explainer-worker/, a Cloudflare Worker). This URL is
-// not a secret: the Worker holds the Anthropic key and only accepts this site's
-// origins. Local dev talks to `npm run dev` in explainer-worker/ on port 8787.
-// While the production value is empty, the live site hides the Explain button.
-const EXPLAIN_API_URL = location.hostname === "localhost"
-    ? "http://localhost:8787/explain"
-    : "";
+// Claude quake explainer endpoint (worker/src/index.js). Not a secret: the
+// Worker holds the Anthropic key. In production the Worker also serves this
+// site, so the API is same-origin. `npm start` (localhost:3000) has no API, so
+// it calls the Worker's dev server (`npm run dev` in worker/, port 8787).
+// GitHub Pages has no API, so the button stays hidden there.
+const EXPLAIN_API_URL = location.hostname === "localhost" && location.port === "3000"
+    ? "http://localhost:8787/api/explain"
+    : /\.github\.io$/.test(location.hostname)
+        ? ""
+        : "/api/explain";
