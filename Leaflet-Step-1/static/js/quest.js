@@ -552,7 +552,7 @@
         backfillLog();
         cloudStatus = "Syncing…";
         return cloudSync().then(function () {
-            toast("☁️", (how === "claim" ? "Gamer tag " + account.tag + " is yours" : "Signed in as " + account.tag) + ". Your Quake Quest progress is saved to the cloud.");
+            toast("☁️", (how === "claim" ? "Emberkite tag " + account.tag + " is yours" : "Signed in as " + account.tag) + ". Your Quake Quest progress is saved to the cloud.");
             renderJournal();
         });
     }
@@ -1003,9 +1003,9 @@
         }
         if (accountView === "idle") {
             box.appendChild(el("p", "quest-account-title", "Playing on this device only"));
-            box.appendChild(el("p", "quest-note", "Claim an Emberkite gamer tag to save your progress to the cloud, play on any device and join the leaderboard. Already have one from Bhalo's Airship Dash? Sign in with it."));
+            box.appendChild(el("p", "quest-note", "Claim an Emberkite tag (your gamer tag for every Emberkite game) to save your progress to the cloud, play on any device and join the leaderboard. Already have one from Bhalo's Airship Dash? Sign in with it."));
             var a = el("div", "quest-account-actions");
-            a.appendChild(button("Claim a gamer tag", "quest-go", function () { accountView = "claim"; accountMsg = ""; renderJournal(); }));
+            a.appendChild(button("Claim an Emberkite tag", "quest-go", function () { accountView = "claim"; accountMsg = ""; renderJournal(); }));
             a.appendChild(button("Sign in", "quest-go quest-go-quiet", function () { accountView = "signin"; accountMsg = ""; renderJournal(); }));
             box.appendChild(a);
             return box;
@@ -1014,15 +1014,15 @@
         form.setAttribute("novalidate", "");
         var tag = null, pin = null, code = null;
         if (accountView === "claim") {
-            box.appendChild(el("p", "quest-account-title", "Claim a gamer tag"));
+            box.appendChild(el("p", "quest-account-title", "Claim an Emberkite tag"));
             box.appendChild(el("p", "quest-note", "3 to 16 letters, numbers, _ or -. Don't use your real name. A 4-digit PIN lets you sign in on other devices."));
-            tag = field("Gamer tag", { autocomplete: "off", maxlength: "16", spellcheck: "false", autocapitalize: "off" });
+            tag = field("Emberkite tag", { autocomplete: "off", maxlength: "16", spellcheck: "false", autocapitalize: "off" });
             pin = field("PIN (optional, 4 digits)", { inputmode: "numeric", maxlength: "4", autocomplete: "off", pattern: "[0-9]*" });
             form.appendChild(tag.wrap); form.appendChild(pin.wrap);
             tag.input.value = draftTag; tag.input.addEventListener("input", function () { draftTag = tag.input.value; });
         } else if (accountView === "signin") {
             box.appendChild(el("p", "quest-account-title", "Sign in"));
-            tag = field("Gamer tag", { autocomplete: "username", maxlength: "16", spellcheck: "false", autocapitalize: "off" });
+            tag = field("Emberkite tag", { autocomplete: "username", maxlength: "16", spellcheck: "false", autocapitalize: "off" });
             pin = field("PIN", { inputmode: "numeric", maxlength: "4", autocomplete: "off", pattern: "[0-9]*" });
             form.appendChild(tag.wrap); form.appendChild(pin.wrap);
             tag.input.value = draftTag; tag.input.addEventListener("input", function () { draftTag = tag.input.value; });
@@ -1046,7 +1046,7 @@
             var call;
             if (accountView === "claim") {
                 var t = tag.input.value.trim(), p = pin.input.value.trim();
-                if (!/^[A-Za-z0-9_-]{3,16}$/.test(t)) { accountMsg = "A gamer tag is 3 to 16 letters, numbers, _ or -."; renderJournal(); return; }
+                if (!/^[A-Za-z0-9_-]{3,16}$/.test(t)) { accountMsg = "An Emberkite tag is 3 to 16 letters, numbers, _ or -."; renderJournal(); return; }
                 if (p && !/^\d{4}$/.test(p)) { accountMsg = "A PIN is exactly 4 digits."; renderJournal(); return; }
                 call = post(ID_API + "/player", p ? { tag: t, pin: p } : { tag: t }).then(function (r) {
                     if (r.ok && r.data.recovery) shownRecovery = r.data.recovery;
@@ -1077,7 +1077,7 @@
         loadBoard().then(function (r) {
             list.replaceChildren();
             if (!r.ok) { list.appendChild(el("p", "quest-account-error", r.error)); return; }
-            if (!r.data.top.length) { list.appendChild(el("p", "quest-note", "No one is on the board yet. Claim a gamer tag and make a prediction to be first!")); return; }
+            if (!r.data.top.length) { list.appendChild(el("p", "quest-note", "No one is on the board yet. Claim an Emberkite tag and make a prediction to be first!")); return; }
             r.data.top.forEach(function (row) {
                 var item = el("div", "quest-board-row" + (row.you ? " is-you" : ""));
                 item.appendChild(el("span", "quest-board-rank", "#" + row.rank));
@@ -1089,7 +1089,7 @@
             if (r.data.you && r.data.you.rank > 20) {
                 list.appendChild(el("p", "quest-note", "You: #" + r.data.you.rank + " of " + r.data.players + " with " + r.data.you.xp + " XP."));
             } else if (!signedIn()) {
-                list.appendChild(el("p", "quest-note", "Claim a gamer tag to join the board."));
+                list.appendChild(el("p", "quest-note", "Claim an Emberkite tag to join the board."));
             }
         });
     }
