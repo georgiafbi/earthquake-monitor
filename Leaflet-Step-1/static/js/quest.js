@@ -27,16 +27,10 @@
         return "minor";
     }
 
-    // Gutenberg-Richter radiated energy, as tonnes of TNT (same formula as the explainer Worker)
-    function tntTonnes(mag) {
-        return Math.pow(10, 1.5 * Number(mag) + 4.8) / 4.184e9;
-    }
-
-    function formatTnt(tonnes) {
-        if (tonnes >= 1e6) return Number((tonnes / 1e6).toPrecision(2)).toLocaleString("en-US") + " million tonnes of TNT";
-        if (tonnes >= 1) return Number(tonnes.toPrecision(2)).toLocaleString("en-US") + " tonnes of TNT";
-        return Number((tonnes * 1000).toPrecision(2)).toLocaleString("en-US") + " kg of TNT";
-    }
+    // radiated energy as tonnes of TNT, and its wording: kept in quest-data.js (D.TNT) so the
+    // Field Guide page (quest-guide.html) shows exactly the numbers the game asks about
+    var tntTonnes = D.TNT.tonnes;
+    var formatTnt = D.TNT.format;
 
     // plate boundaries flattened into segments, grouped by kind of motion
     var KIND_OF_CLASS = { SUB: "subduction", OCB: "collision", CCB: "collision", OSR: "divergent", CRB: "divergent", OTF: "transform", CTF: "transform" };

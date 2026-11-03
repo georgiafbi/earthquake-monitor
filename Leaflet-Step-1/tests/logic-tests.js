@@ -1214,6 +1214,11 @@
         assertEqual(QS.magnitudeClass(6.5), "strong", "M6.5");
         assertEqual(QS.magnitudeClass(9.1), "great", "M9.1");
         assertEqual(QS.formatTnt(QS.tntTonnes(6.0)), "15,000 tonnes of TNT", "M6 energy (about one Hiroshima bomb)");
+        // the Field Guide page (quest-guide.html) reads the same functions from QUEST_DATA
+        assertEqual(QS.tntTonnes, window.QUEST_DATA.TNT.tonnes, "the game and the Field Guide share one energy formula");
+        assertEqual(QS.formatTnt, window.QUEST_DATA.TNT.format, "and one way of wording it");
+        assertEqual(window.QUEST_DATA.TNT.format(window.QUEST_DATA.TNT.tonnes(2)), "15 kg of TNT", "M2 energy");
+        assertEqual(window.QUEST_DATA.TNT.format(window.QUEST_DATA.TNT.tonnes(9)), "480 million tonnes of TNT", "M9 energy");
     });
 
     test("Quake Quest: boundary answers match real places, and unclear ones are not asked", function () {

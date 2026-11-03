@@ -50,6 +50,17 @@
         }
     };
 
+    // Gutenberg-Richter radiated energy, as tonnes of TNT (same formula as the explainer Worker):
+    // log10 E = 1.5 M + 4.8 (joules), one tonne of TNT = 4.184e9 J
+    var TNT = {
+        tonnes: function (mag) { return Math.pow(10, 1.5 * Number(mag) + 4.8) / 4.184e9; },
+        format: function (tonnes) {
+            if (tonnes >= 1e6) return Number((tonnes / 1e6).toPrecision(2)).toLocaleString("en-US") + " million tonnes of TNT";
+            if (tonnes >= 1) return Number(tonnes.toPrecision(2)).toLocaleString("en-US") + " tonnes of TNT";
+            return Number((tonnes * 1000).toPrecision(2)).toLocaleString("en-US") + " kg of TNT";
+        }
+    };
+
     var ENERGY = {
         cadet: "The magnitude scale goes up in giant jumps: each whole number up means about 32 times more energy. So an M6 releases about 1,000 times more energy than an M4!",
         scientist: "Radiated energy follows log10 E ≈ 1.5 M + 4.8 (joules): about ×32 per magnitude unit and ×1,000 per two units, while wave amplitude grows ×10 per unit."
@@ -203,7 +214,7 @@
     ];
 
     window.QUEST_DATA = {
-        DEPTH: DEPTH, KINDS: KINDS, ENERGY: ENERGY, MAGNITUDE: MAGNITUDE, REGIONS: REGIONS, SPECIAL: SPECIAL,
+        DEPTH: DEPTH, KINDS: KINDS, ENERGY: ENERGY, TNT: TNT, MAGNITUDE: MAGNITUDE, REGIONS: REGIONS, SPECIAL: SPECIAL,
         CATEGORIES: CATEGORIES, RANKS: RANKS, XP: XP, BADGES: BADGES, MISSIONS: MISSIONS, SKILL_MISSIONS: SKILL_MISSIONS,
         SHIPS: SHIPS
     };
