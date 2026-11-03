@@ -1,0 +1,242 @@
+/* ===================================================== Quake Quest (quest.js) */
+.quest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  background: rgba(15, 23, 42, 0.85);
+  color: #fde68a;
+  font: inherit;
+  cursor: pointer;
+}
+.quest-chip:hover { background: rgba(251, 191, 36, 0.14); }
+.quest-chip:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+.quest-chip-icon { font-size: 1.05rem; }
+.quest-chip-text { display: grid; line-height: 1.05; text-align: left; }
+.quest-chip-rank { font-size: 0.72rem; font-weight: 800; }
+.quest-chip-xp { font-size: 0.62rem; color: #cbd5e1; }
+
+/* the question in a quake popup */
+.quest-box {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.07);
+}
+.quest-box.is-right { border-color: rgba(74, 222, 128, 0.5); background: rgba(74, 222, 128, 0.08); }
+.quest-box.is-wrong { border-color: rgba(125, 211, 252, 0.45); background: rgba(56, 189, 248, 0.07); }
+.quest-kicker { margin: 0; color: #fbbf24; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.quest-prompt { margin: 0; color: #f8fafc; font-size: 0.86rem; font-weight: 700; line-height: 1.35; }
+.quest-options { display: grid; gap: 6px; }
+.quest-option {
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.7);
+  color: #e2e8f0;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+.quest-option:hover { border-color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
+.quest-option:focus-visible,
+.quest-skip:focus-visible,
+.quest-tutor-btn:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+.quest-hint { color: #cbd5e1; font-size: 0.74rem; }
+.quest-hint summary { cursor: pointer; color: #94a3b8; }
+.quest-hint p { margin: 6px 0 0; line-height: 1.4; }
+.quest-skip {
+  justify-self: start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: #94a3b8;
+  font: inherit;
+  font-size: 0.72rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.quest-result { margin: 0; color: #f8fafc; font-size: 0.82rem; font-weight: 700; line-height: 1.35; }
+.quest-lesson { margin: 0; color: #cbd5e1; font-size: 0.78rem; line-height: 1.45; }
+.quest-tutor { display: grid; gap: 6px; }
+.quest-tutor-btn {
+  justify-self: start;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.55);
+  background: rgba(14, 165, 233, 0.16);
+  color: #e0f2fe;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.quest-tutor-head { margin: 0; color: #7dd3fc; font-size: 0.7rem; font-weight: 800; }
+.quest-tutor-text { margin: 0; color: #e2e8f0; font-size: 0.78rem; line-height: 1.45; }
+.quest-tutor-error { margin: 0; color: #fca5a5; font-size: 0.72rem; }
+
+/* toasts */
+.quest-toasts {
+  position: fixed;
+  left: 50%;
+  top: 16px;
+  z-index: 3000;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.quest-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.55);
+  color: #f8fafc;
+  font-size: 0.84rem;
+  line-height: 1.3;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.quest-toast.is-leaving { opacity: 0; transform: translateY(-8px); }
+.quest-toast-icon { font-size: 1.2rem; }
+
+/* Field Journal */
+.quest-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.72);
+}
+.quest-overlay[hidden] { display: none; }
+.quest-dialog {
+  width: min(620px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: #0f172a;
+  color: #e2e8f0;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.7);
+}
+.quest-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.quest-title { margin: 0; font-size: 1.2rem; color: #fde68a; }
+.quest-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: transparent;
+  color: #e2e8f0;
+  font: inherit;
+  cursor: pointer;
+}
+.quest-rankbar { margin: 12px 0; }
+.quest-rank-title { margin: 0 0 6px; font-weight: 800; color: #f8fafc; }
+.quest-track { height: 10px; border-radius: 999px; background: rgba(148, 163, 184, 0.2); overflow: hidden; }
+.quest-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f59e0b, #fde68a); }
+.quest-rank-next { margin: 6px 0 0; color: #94a3b8; font-size: 0.78rem; }
+.quest-settings { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.quest-seg { display: grid; gap: 4px; }
+.quest-seg-label { color: #94a3b8; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.quest-seg-group { display: inline-flex; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 999px; overflow: hidden; }
+.quest-seg-btn { padding: 6px 12px; border: 0; background: transparent; color: #cbd5e1; font: inherit; font-size: 0.8rem; cursor: pointer; }
+.quest-seg-btn.is-active { background: rgba(251, 191, 36, 0.2); color: #fde68a; font-weight: 700; }
+.quest-tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid rgba(148, 163, 184, 0.2); padding-bottom: 8px; }
+.quest-tab {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+.quest-tab.is-active { border-color: rgba(251, 191, 36, 0.5); background: rgba(251, 191, 36, 0.12); color: #fde68a; font-weight: 700; }
+.quest-tab:focus-visible,
+.quest-seg-btn:focus-visible,
+.quest-card:focus-visible,
+.quest-go:focus-visible,
+.quest-close:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+.quest-panel { display: grid; gap: 10px; padding-top: 12px; }
+.quest-note { margin: 0; color: #94a3b8; font-size: 0.8rem; line-height: 1.4; }
+.quest-mission,
+.quest-ship {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(30, 41, 59, 0.6);
+}
+.quest-mission.is-done { border-color: rgba(74, 222, 128, 0.45); }
+.quest-mission-icon { font-size: 1.3rem; }
+.quest-mission-body,
+.quest-ship-body { flex: 1; min-width: 0; }
+.quest-mission-text,
+.quest-ship-name { margin: 0; color: #f1f5f9; font-size: 0.86rem; line-height: 1.35; }
+.quest-mission-progress,
+.quest-ship-meta { margin: 2px 0 0; color: #94a3b8; font-size: 0.74rem; }
+.quest-go {
+  flex: none;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fde68a;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.quest-group { margin: 6px 0 0; color: #fde68a; font-size: 0.82rem; }
+.quest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.quest-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  background: rgba(30, 41, 59, 0.4);
+  color: #94a3b8;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.quest-card.is-got { border-style: solid; border-color: rgba(251, 191, 36, 0.45); color: #f1f5f9; background: rgba(251, 191, 36, 0.08); }
+.quest-card-icon { font-size: 1.4rem; line-height: 1.2; }
+.quest-card-label { font-size: 0.74rem; font-weight: 700; line-height: 1.25; }
+.quest-card-desc { font-size: 0.68rem; color: #94a3b8; line-height: 1.3; }
+.quest-badges .quest-card { cursor: default; }
+.quest-lesson-card { padding: 12px; border-radius: 12px; border: 1px solid rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.07); }
+.quest-lesson-card p { margin: 0; color: #e2e8f0; font-size: 0.82rem; line-height: 1.5; }
+.quest-lesson-card .quest-lesson-title { margin-bottom: 6px; color: #fde68a; font-weight: 800; }
+.quest-ship.is-locked { opacity: 0.55; }
+.quest-ship.is-flagship { border-color: rgba(251, 191, 36, 0.55); }
+.quest-ship-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .quest-toast { transition: none; }
+}
+@media (max-width: 520px) {
+  .quest-chip-xp { display: none; }
+  .quest-dialog { padding: 14px; }
+}

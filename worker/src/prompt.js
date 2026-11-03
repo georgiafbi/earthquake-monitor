@@ -128,6 +128,87 @@ export function toParagraphs(text) {
         .filter(Boolean);
 }
 
+// ---- Quake Quest tutor: explains a wrong guess. Inputs are fixed keywords only.
+export const TUTOR_KEYS = {
+    depth: ["shallow", "intermediate", "deep"],
+    boundary: ["subduction", "collision", "divergent", "transform", "intraplate"],
+    energy: ["x1/32", "x1", "x32", "x1000"]
+};
+export const TUTOR_MODES = ["cadet", "scientist"];
+
+export function depthClassOf(km) {
+    const d = Number(km);
+    if (!Number.isFinite(d) || d < 70) return "shallow";
+    return d < 300 ? "intermediate" : "deep";
+}
+
+// Validates a tutor request; returns { q, guess, answer, mode } or null.
+export function parseTutorParams(params) {
+    const q = params.get("q");
+    const guess = params.get("guess");
+    const answer = params.get("answer");
+    const mode = params.get("mode") || "cadet";
+    const keys = TUTOR_KEYS[q];
+    if (!keys || !keys.includes(guess) || !keys.includes(answer) || guess === answer || !TUTOR_MODES.includes(mode)) {
+        return null;
+    }
+    return { q, guess, answer, mode };
+}
+
+// For depth and energy the server knows the truth from USGS data, so it does not
+// take the browser's word for it. (Boundary answers come from the app's plate map.)
+export function settleTutorAnswer(req, feature) {
+    if (req.q === "depth") {
+        const coords = (feature && feature.geometry && feature.geometry.coordinates) || [];
+        return Object.assign({}, req, { answer: depthClassOf(coords[2]) });
+    }
+    if (req.q === "energy") return Object.assign({}, req, { answer: "x1" });
+    return req;
+}
+
+export const TUTOR_SYSTEM_PROMPT = `You are a friendly geology tutor inside an earthquake map game. A player guessed something about a real earthquake and got it wrong. Explain, using the USGS facts given, why the correct answer fits this quake, and give one clue they can use next time on the map.
+
+Rules:
+- Never scold. Start with what was reasonable about their guess, in one short clause, then explain.
+- Cadet mode: words a 10-year-old knows, about 70 words. Scientist mode: proper terms (focal depth, Wadati-Benioff zone, strike-slip, log energy scaling), about 100 words.
+- Use only the facts given and well-established geology. For energy, use the energy figures given; do not calculate your own.
+- Plain text, no markdown, two short paragraphs separated by one blank line.`;
+
+const DEPTH_WORDS = { shallow: "shallow (0-70 km)", intermediate: "intermediate (70-300 km)", deep: "deep (300-700 km)" };
+const KIND_WORDS = { subduction: "a subduction zone", collision: "a continental collision zone", divergent: "a spreading ridge or rift", transform: "a transform fault", intraplate: "inside a plate, away from boundaries" };
+
+export function buildTutorMessage(feature, req) {
+    const p = (feature && feature.properties) || {};
+    const coords = (feature && feature.geometry && feature.geometry.coordinates) || [];
+    const t = tntEquivalent(p.mag);
+    const facts = [
+        line("Place", p.place),
+        line("Magnitude", p.mag),
+        line("Depth (km)", coords[2] != null ? Number(coords[2]).toFixed(1) : null),
+        line("Approximate radiated energy", t),
+        line("Event type", p.type)
+    ].filter(Boolean).join("\n");
+    let question, guessText, answerText;
+    if (req.q === "depth") {
+        question = "How deep did this quake start?";
+        guessText = DEPTH_WORDS[req.guess]; answerText = DEPTH_WORDS[req.answer];
+    } else if (req.q === "boundary") {
+        question = "What kind of plate setting made this quake?";
+        guessText = KIND_WORDS[req.guess]; answerText = KIND_WORDS[req.answer];
+    } else {
+        const factor = { "x1/32": "32 times too small", "x1": "the right amount", "x32": "32 times too big", "x1000": "1,000 times too big" };
+        question = "About how much energy did this quake release?";
+        guessText = "an amount " + factor[req.guess] + " (" + req.guess + " of the real value)";
+        answerText = "the real value, " + t;
+    }
+    return "USGS facts:\n" + facts
+        + "\n\nQuestion: " + question
+        + "\nPlayer's guess: " + guessText
+        + "\nCorrect answer: " + answerText
+        + "\nMode: " + req.mode
+        + "\n\nExplain.";
+}
+
 export function isAllowedOrigin(origin, allowedList) {
     if (!origin) {
         return false;

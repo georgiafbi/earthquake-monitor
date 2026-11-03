@@ -21,7 +21,8 @@
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" />
 
   <!-- Our CSS -->
-  <link rel="stylesheet" type="text/css" href="Leaflet-Step-1/static/css/style.css?v=20261102_tsunami">
+  <link rel="stylesheet" type="text/css" href="Leaflet-Step-1/static/css/style.css?v=20261103_quest">
+  <link rel="stylesheet" type="text/css" href="Leaflet-Step-1/static/css/quest.css?v=20261103_quest">
 </head>
 
 <body>
@@ -320,6 +321,15 @@
             </div>
           </article>
 
+          <!-- Card 7b: Quake Quest (the geology game) -->
+          <article class="guide-card guide-card-wide">
+            <div class="guide-card-icon" aria-hidden="true">🧭</div>
+            <div class="guide-card-text">
+              <h3>Quake Quest: Learn Geology by Playing</h3>
+              <p>Tap any quake and you'll get a <strong>field question first</strong>: how deep did it start, what kind of plate boundary made it, or how much energy did it release? Answer, then the facts are revealed with a short lesson. Got it wrong? <strong>Ask the tutor why</strong> and Claude explains, using that quake's real data. Every quake you predict is logged in your <strong>Field Guide</strong>, daily <strong>missions</strong> send you hunting across today's map, <strong>badges</strong> mark milestones, and each new <strong>rank</strong> puts another airship of the survey fleet under your command. Open your <strong>Field Journal</strong> (🧭 at the top) to switch between <strong>Cadet</strong> and <strong>Scientist</strong> wording or turn the questions off. Progress is kept on this device.</p>
+            </div>
+          </article>
+
           <!-- Card 8: Aerial Survey Fleet (Victorian Dirigibles) -->
           <article class="guide-card guide-card-wide">
             <div class="guide-card-icon" aria-hidden="true">🛸</div>
@@ -360,13 +370,16 @@
   <script type="text/javascript" src="Leaflet-Step-1/static/js/config.js"></script>
   <script type="text/javascript" src="Leaflet-Step-1/static/js/explain-config.js"></script>
   <!-- Tectonic Plates Data -->
-  <script type="text/javascript" src="Leaflet-Step-1/static/js/plates-data.js?v=20260823_145500"></script>
+  <script type="text/javascript" src="Leaflet-Step-1/static/js/plates-data.js?v=20261103_quest"></script>
   <!-- Local country lookup (pinned version; classification has a built-in fallback) -->
   <script src="https://cdn.jsdelivr.net/npm/@rapideditor/country-coder@5.6.1/dist/country-coder.iife.min.js"></script>
   <!-- Three.js 3D Engine for Victorian Dirigible -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- Our JavaScript -->
-  <script type="text/javascript" src="Leaflet-Step-1/static/js/logic.js?v=20261102_tsunami"></script>
+  <script type="text/javascript" src="Leaflet-Step-1/static/js/logic.js?v=20261103_quest"></script>
+  <!-- Quake Quest: the geology game (lessons, then the game itself) -->
+  <script type="text/javascript" src="Leaflet-Step-1/static/js/quest-data.js?v=20261103_quest"></script>
+  <script type="text/javascript" src="Leaflet-Step-1/static/js/quest.js?v=20261103_quest"></script>
 </body>
 
 </html>

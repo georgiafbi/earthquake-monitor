@@ -1101,6 +1101,12 @@ function buildPopupContent(props) {
     heading.textContent = props.place || "Unknown location";
     content.appendChild(heading);
 
+    // Quake Quest (quest.js): predict before you peek. Until this quake is
+    // answered or skipped, the popup holds only the question.
+    if (window.quakeQuest && window.quakeQuest.renderPopupGate(content, props) === "question") {
+        return content;
+    }
+
     if (props.isChampion === true || props.isChampion === "true") {
         var championBadge = document.createElement("p");
         championBadge.className = "champion-badge";
@@ -1335,8 +1341,19 @@ function setActiveQuakePopup(popup) {
     return activeQuakePopup;
 }
 
+// the open quake popup's latest properties, so it can be redrawn (Quake Quest answers)
+var lastQuakePopupProps = null;
+function refreshQuakePopup() {
+    if (!activeQuakePopup || !activeQuakePopup.isOpen() || !lastQuakePopupProps) return;
+    activeQuakePopup.setDOMContent(buildPopupContent(lastQuakePopupProps));
+    requestAnimationFrame(keepQuakePopupInView);
+}
+window.earthquakeApp = window.earthquakeApp || {};
+window.earthquakeApp.refreshQuakePopup = refreshQuakePopup;
+
 function openQuakePopup(coordinates, properties) {
     var popupProperties = Object.assign({}, properties, properties.detail ? { enrichmentState: "loading" } : {});
+    lastQuakePopupProps = popupProperties;
     var popup = new maplibregl.Popup({ maxWidth: "340px", offset: 10 })
         .setLngLat(coordinates)
         .setDOMContent(buildPopupContent(popupProperties));
@@ -1356,7 +1373,8 @@ function openQuakePopup(coordinates, properties) {
             if (!popup.isOpen()) {
                 return;
             }
-            popup.setDOMContent(buildPopupContent(Object.assign({}, properties, metadata)));
+            lastQuakePopupProps = Object.assign({}, properties, metadata);
+            popup.setDOMContent(buildPopupContent(lastQuakePopupProps));
         });
     }
     return popup;

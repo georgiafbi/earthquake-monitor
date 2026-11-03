@@ -1198,6 +1198,102 @@
         assert(inducedProfile.duration <= naturalProfile.duration, "induced duration is snappier");
     });
 
+    // ---------------------------------------------------------------- Quake Quest
+    var Q = window.quakeQuest;
+    var QS = Q.science;
+    var qIndex = QS.buildBoundaryIndex(window.tectonicPlatesGeoJSON);
+
+    test("Quake Quest: depth and magnitude classes follow the textbook cut-offs", function () {
+        assertEqual(QS.depthClass(10), "shallow", "10 km");
+        assertEqual(QS.depthClass(69.9), "shallow", "just above 70 km");
+        assertEqual(QS.depthClass(70), "intermediate", "70 km");
+        assertEqual(QS.depthClass(299), "intermediate", "299 km");
+        assertEqual(QS.depthClass(300), "deep", "300 km");
+        assertEqual(QS.magnitudeClass(3.9), "minor", "M3.9");
+        assertEqual(QS.magnitudeClass(4.0), "light", "M4.0");
+        assertEqual(QS.magnitudeClass(6.5), "strong", "M6.5");
+        assertEqual(QS.magnitudeClass(9.1), "great", "M9.1");
+        assertEqual(QS.formatTnt(QS.tntTonnes(6.0)), "15,000 tonnes of TNT", "M6 energy (about one Hiroshima bomb)");
+    });
+
+    test("Quake Quest: boundary answers match real places, and unclear ones are not asked", function () {
+        var expect = [
+            ["Tonga deep slab", -178.2, -18, 560, "subduction"],
+            ["Chile megathrust", -72, -35, 25, "subduction"],
+            ["Hawaii hotspot", -155.3, 19.4, 5, "intraplate"],
+            ["San Andreas Fault", -120.5, 36, 8, "transform"],
+            ["Nepal Himalaya", 84.7, 28.2, 15, "collision"],
+            ["East Pacific Rise", -112.5, -20, 10, "divergent"],
+            ["Iceland", -18.5, 64.6, 10, "divergent"],
+            ["Oklahoma", -97.5, 36, 5, "intraplate"],
+            ["East African Rift (diffuse: not asked)", 36.5, -3, 10, null],
+            ["Tien Shan (diffuse: not asked)", 78, 42, 15, null]
+        ];
+        expect.forEach(function (e) {
+            assertEqual(QS.classifyBoundary(e[1], e[2], e[3], qIndex).kind, e[4], e[0]);
+        });
+    });
+
+    test("Quake Quest: questions always contain their answer; boundary is asked only when clear", function () {
+        var clear = { id: "t1", depth: 10, depthClass: "shallow", mag: 5.1, boundary: { kind: "transform" }, induced: false };
+        var unclear = { id: "t2", depth: 10, depthClass: "shallow", mag: 5.1, boundary: { kind: null }, induced: false };
+        assert(QS.questionKinds(clear).indexOf("boundary") !== -1, "clear boundary can be asked");
+        assertEqual(QS.questionKinds(unclear).indexOf("boundary"), -1, "unclear boundary is never asked");
+        ["t1", "t3", "t4", "t5", "t6"].forEach(function (id) {
+            var q = QS.buildQuestion(Object.assign({}, clear, { id: id }), "cadet");
+            assert(q.options.some(function (o) { return o.key === q.answer; }), id + " " + q.kind + " offers the right answer");
+        });
+        var energy = ["e1", "e2", "e3", "e4", "e5", "e6"].map(function (id) { return QS.buildQuestion(Object.assign({}, unclear, { id: id }), "scientist"); })
+            .find(function (q) { return q.kind === "energy"; });
+        assert(energy, "an energy question comes up");
+        assertEqual(energy.options.length, 4, "four energy options, 32x apart");
+        assert(/670 tonnes/.test(energy.options.find(function (o) { return o.key === "x1"; }).label), "M5.1 is about 670 tonnes of TNT");
+    });
+
+    test("Quake Quest: popup asks first, then reveals the facts and scores the answer", function () {
+        var savedGeojson = currentGeojson;
+        var savedState = JSON.stringify(Q.getState());
+        Q.resetForTests();
+        try {
+            currentGeojson = { type: "FeatureCollection", features: [{
+                type: "Feature", id: "qq-test-1",
+                geometry: { type: "Point", coordinates: [-178.2, -18, 560] },
+                properties: { eventId: "qq-test-1", place: "Fiji region", mag: 5.5, depth: 560, time: 0 }
+            }] };
+            var props = currentGeojson.features[0].properties;
+            var before = helpers.buildPopupContent(props);
+            assert(before.querySelector(".quest-box"), "question shown");
+            assertEqual(before.querySelectorAll(".popup-fact").length, 0, "facts hidden until answered");
+            var c = QS.classifyQuake(currentGeojson.features[0]);
+            var q = QS.buildQuestion(c, "cadet");
+            var right = Array.prototype.find.call(before.querySelectorAll(".quest-option"), function (b) {
+                return b.textContent === q.options.find(function (o) { return o.key === q.answer; }).label;
+            });
+            assert(right, "the right answer is a button");
+            right.click();
+            var st = Q.getState();
+            assert(st.answers["qq-test-1"] && st.answers["qq-test-1"].ok, "answer recorded as right");
+            assert(st.xp >= 20, "XP awarded (" + st.xp + ")");
+            assert(st.collected["depth:deep"] && st.collected["kind:subduction"], "deep subduction quake logged in the field guide");
+            assert(st.badges.first && st.badges.deep, "First Reading and Deep Diver badges");
+            var after = helpers.buildPopupContent(props);
+            assert(after.querySelector(".quest-box.is-right"), "result shown");
+            assert(after.querySelectorAll(".popup-fact").length > 0, "facts revealed after answering");
+        } finally {
+            currentGeojson = savedGeojson;
+            Q.resetForTests();
+            try { localStorage.setItem("quakeQuest.v1", savedState); } catch (e) { /* ignore */ }
+        }
+    });
+
+    test("Quake Quest: ranks climb with XP and each rank brings an airship", function () {
+        assertEqual(QS.rankIndex(0), 0, "Cadet at 0 XP");
+        assertEqual(QS.rankIndex(59), 0, "still Cadet at 59");
+        assertEqual(QS.rankIndex(60), 1, "Deck Observer at 60");
+        assertEqual(QS.rankIndex(99999), 8, "Admiral at the top");
+        assertEqual(window.QUEST_DATA.RANKS.length, SATELLITE_FLEET.length, "one airship per rank");
+    });
+
     var failed = results.filter(function (result) { return !result.passed; });
     var list = document.getElementById("results");
     results.forEach(function (result) {
