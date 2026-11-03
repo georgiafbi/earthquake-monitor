@@ -149,8 +149,62 @@
         { id: "streak3", icon: "🔥", text: "Get 3 right in a row.", goal: 3, stat: "streakToday" }
     ];
 
+    // ---- the survey fleet: one instrument per airship (same order as SATELLITE_FLEET in logic.js).
+    // A ship joins you when you choose it (at the start, and once per promotion) or by its deed.
+    // match(c, ctx): does this unpredicted quake show up on the instrument? ctx has the
+    // player's collected categories and today's open missions. sort: "mag" or "time".
+    function loggedCount(s) { return Object.keys(s.collected).length; }
+    var SHIPS = [
+        { icon: "🧭", instrument: "Field Guide Compass", finds: "quakes of a kind you haven't logged yet",
+          cadet: "Points you to quakes that would add something new to your Field Guide.",
+          scientist: "Filters for events in categories absent from your collection: the fastest way to complete it.",
+          deed: "Log 8 kinds of quake in your Field Guide", deedTest: function (s) { return loggedCount(s) >= 8; },
+          match: function (c, ctx) { return ctx.newKinds(c); }, sort: "mag" },
+        { icon: "🎯", instrument: "Mission Beacon", finds: "quakes that would complete one of today's missions",
+          cadet: "Lights up quakes that finish one of today's missions.",
+          scientist: "Flags events that satisfy an open daily mission.",
+          deed: "Finish 3 daily missions", deedTest: function (s) { return s.stats.missionsDone >= 3; },
+          match: function (c, ctx) { return ctx.missionMatch(c); }, sort: "mag" },
+        { icon: "🤿", instrument: "Deep Sounder", finds: "quakes deeper than 70 km",
+          cadet: "Hears quakes that start deep underground, inside sinking plates.",
+          scientist: "Selects intermediate and deep-focus events (70+ km), the slab seismicity of subduction zones.",
+          deed: "Predict 3 quakes deeper than 70 km", deedTest: function (s) { return s.stats.deepPredictions >= 3; },
+          match: function (c) { return c.depth >= 70; }, sort: "mag" },
+        { icon: "🫧", instrument: "Ridge Lantern", finds: "quakes on spreading ridges and rifts",
+          cadet: "Glows over places where plates pull apart and new sea floor is made.",
+          scientist: "Selects events on divergent boundaries: mid-ocean ridges and continental rifts.",
+          deed: "Predict 3 quakes out in the open ocean", deedTest: function (s) { return s.stats.oceanPredictions >= 3; },
+          match: function (c) { return c.boundary.kind === "divergent"; }, sort: "mag" },
+        { icon: "🌋", instrument: "Trench Sonar", finds: "subduction-zone quakes",
+          cadet: "Pings quakes where one plate dives under another, along the Ring of Fire.",
+          scientist: "Selects events attributed to subduction zones: interface, intraslab and upper-plate.",
+          deed: "Get 3 'what kind of place?' questions right", deedTest: function (s) { return s.stats.boundaryRight >= 3; },
+          match: function (c) { return c.boundary.kind === "subduction"; }, sort: "mag" },
+        { icon: "↔️", instrument: "Fault Tracer", finds: "transform-fault and collision quakes",
+          cadet: "Traces faults where plates slide past or crash into each other.",
+          scientist: "Selects strike-slip (transform) and continental-collision events.",
+          deed: "Predict 2 quakes on transform faults or collision zones", deedTest: function (s) { return s.stats.faultPredictions >= 2; },
+          match: function (c) { return c.boundary.kind === "transform" || c.boundary.kind === "collision"; }, sort: "mag" },
+        { icon: "🌊", instrument: "Wave Watch", finds: "tsunami-capable and magnitude 5+ quakes",
+          cadet: "Watches for the big ones, and the ones big enough under the sea to make a tsunami.",
+          scientist: "Selects M5+ events and those carrying the USGS tsunami flag.",
+          deed: "Predict a magnitude 5+ quake", deedTest: function (s) { return s.stats.bigPredictions >= 1; },
+          match: function (c) { return c.mag >= 5 || c.tsunami; }, sort: "mag" },
+        { icon: "🧩", instrument: "Odd-One-Out Finder", finds: "quakes inside plates and human-made ones",
+          cadet: "Finds quakes that happen far from plate edges, and shaking caused by people.",
+          scientist: "Selects intraplate events and anthropogenic events (explosions, induced seismicity).",
+          deed: "Log a quake inside a plate or a human-made one", deedTest: function (s) { return Boolean(s.collected["kind:intraplate"] || s.collected["special:induced"]); },
+          match: function (c) { return c.boundary.kind === "intraplate" || c.induced; }, sort: "mag" },
+        { icon: "🖋️", instrument: "Fresh Ink", finds: "the newest quakes you haven't predicted",
+          cadet: "Takes you straight to the quakes that just happened.",
+          scientist: "Orders unpredicted events by origin time, newest first.",
+          deed: "Predict 3 quakes within an hour of when they happened", deedTest: function (s) { return s.stats.freshPredictions >= 3; },
+          match: function () { return true; }, sort: "time" }
+    ];
+
     window.QUEST_DATA = {
         DEPTH: DEPTH, KINDS: KINDS, ENERGY: ENERGY, MAGNITUDE: MAGNITUDE, REGIONS: REGIONS, SPECIAL: SPECIAL,
-        CATEGORIES: CATEGORIES, RANKS: RANKS, XP: XP, BADGES: BADGES, MISSIONS: MISSIONS, SKILL_MISSIONS: SKILL_MISSIONS
+        CATEGORIES: CATEGORIES, RANKS: RANKS, XP: XP, BADGES: BADGES, MISSIONS: MISSIONS, SKILL_MISSIONS: SKILL_MISSIONS,
+        SHIPS: SHIPS
     };
 }());

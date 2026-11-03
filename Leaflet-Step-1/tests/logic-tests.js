@@ -1294,6 +1294,103 @@
         assertEqual(window.QUEST_DATA.RANKS.length, SATELLITE_FLEET.length, "one airship per rank");
     });
 
+    // run fn with a clean Quake Quest state and a given quake list, then restore everything
+    function withQuest(features, fn) {
+        var savedGeojson = currentGeojson;
+        var saved = null;
+        try { saved = localStorage.getItem("quakeQuest.v1"); } catch (e) { /* ignore */ }
+        Q.resetForTests();
+        try {
+            currentGeojson = { type: "FeatureCollection", features: features };
+            fn(Q.getState());
+        } finally {
+            currentGeojson = savedGeojson;
+            Q.resetForTests();
+            try { if (saved === null) localStorage.removeItem("quakeQuest.v1"); else localStorage.setItem("quakeQuest.v1", saved); } catch (e) { /* ignore */ }
+        }
+    }
+    function quake(id, lon, lat, depth, mag, extra) {
+        return { type: "Feature", id: id, geometry: { type: "Point", coordinates: [lon, lat, depth] },
+            properties: Object.assign({ eventId: id, place: id, mag: mag, depth: depth, time: Date.now() - 7200 * 1000 }, extra || {}) };
+    }
+
+    test("Quake Quest fleet: everyone starts with one airship of their choice", function () {
+        withQuest([], function (st) {
+            assert(QS.needsStarter(), "a new player has no airship yet");
+            assertEqual(QS.picksAvailable(), 0, "no promotion picks before a starter");
+            assert(QS.chooseShip(4, "starter"), "the starter can be any ship (HMS Cirrus)");
+            assertEqual(st.ship, 4, "the starter is in use");
+            assert(!QS.chooseShip(0, "starter"), "only one starter");
+            assert(!QS.chooseShip(0, "pick"), "no free picks as a Cadet");
+            assert(!QS.chooseShip(1, "deed"), "a ship can't be claimed without its deed");
+        });
+    });
+
+    test("Quake Quest fleet: each promotion lets you choose another airship", function () {
+        withQuest([], function (st) {
+            QS.chooseShip(2, "starter");
+            st.xp = 160; // Field Observer: two promotions
+            assertEqual(QS.picksAvailable(), 2, "two picks at the third rank");
+            assert(QS.chooseShip(7, "pick") && QS.chooseShip(0, "pick"), "two ships chosen");
+            assertEqual(QS.picksAvailable(), 0, "picks used up");
+            assert(!QS.chooseShip(5, "pick"), "no third pick");
+            assertEqual(st.ships.join(","), "2,7,0", "the fleet in the order it joined");
+            st.xp = 99999;
+            assertEqual(QS.picksAvailable(), 6, "picks never exceed the ships left in the hangar");
+        });
+    });
+
+    test("Quake Quest fleet: deeds earn airships early, but only after the starter", function () {
+        withQuest([], function (st) {
+            st.stats.deepPredictions = 3;
+            assertEqual(QS.awardShipsByDeed().length, 0, "no deed ships before choosing a starter");
+            QS.chooseShip(4, "starter"); // choosing triggers the deed check: Deep Sounder (HMS Australis) joins
+            assert(QS.owns(2), "the Deep Sounder ship joined for predicting 3 deep quakes");
+            assertEqual(st.picksUsed, 0, "a deed ship doesn't use a promotion pick");
+            st.stats.bigPredictions = 1;
+            var ev = QS.awardShipsByDeed();
+            assert(QS.owns(6) && ev.length === 1 && /HMS Monsoon/.test(ev[0].text), "Wave Watch joins for an M5+ prediction");
+        });
+    });
+
+    test("Quake Quest fleet: each instrument finds its own kind of unpredicted quake", function () {
+        var feats = [
+            quake("deep-tonga", -178.2, -18, 560, 5.5),
+            quake("ridge-epr", -112.5, -20, 10, 4.8),
+            quake("hawaii", -155.3, 19.4, 5, 3.1),
+            quake("newest", -120.5, 36, 8, 2.1, { time: Date.now() - 60 * 1000 })
+        ];
+        withQuest(feats, function (st) {
+            QS.chooseShip(0, "starter");
+            var ids = function (i) { return QS.scanMatches(i).map(function (f) { return f.properties.eventId; }).join(","); };
+            assertEqual(ids(2), "deep-tonga", "Deep Sounder: the 560 km quake only");
+            assertEqual(ids(3), "ridge-epr", "Ridge Lantern: the East Pacific Rise quake");
+            assertEqual(ids(4), "deep-tonga", "Trench Sonar: the Tonga slab quake");
+            assertEqual(ids(7), "hawaii", "Odd-One-Out Finder: Hawaii, inside the Pacific plate");
+            assertEqual(ids(5), "newest", "Fault Tracer: the San Andreas quake");
+            assertEqual(ids(8).split(",")[0], "newest", "Fresh Ink: newest first");
+            assertEqual(ids(0).split(",")[0], "deep-tonga", "Field Guide Compass: everything is new at first, biggest first");
+            st.answers["deep-tonga"] = { k: "depth", g: "deep", a: "deep", ok: true, t: Date.now() };
+            assertEqual(ids(2), "", "a quake you've predicted no longer shows up");
+        });
+    });
+
+    test("Quake Quest fleet: older saves keep their XP, choose a starter, and get a pick per rank", function () {
+        var saved = null;
+        try { saved = localStorage.getItem("quakeQuest.v1"); } catch (e) { /* ignore */ }
+        try {
+            localStorage.setItem("quakeQuest.v1", JSON.stringify({ v: 1, on: true, mode: "cadet", xp: 330, ship: 0, answers: {}, collected: {}, badges: {}, stats: { predictions: 9 }, daily: null }));
+            var st = QS.loadState();
+            assertEqual(st.xp, 330, "XP kept");
+            assertEqual(st.ships.length, 0, "no ships yet: the old save had every ship by rank");
+            assertEqual(st.ship, null, "no ship in use until one is chosen");
+            assertEqual(st.stats.deepPredictions, 0, "new counters start at 0");
+            assertEqual(QS.rankIndex(st.xp), 3, "Survey Pilot: three picks waiting after the starter");
+        } finally {
+            try { if (saved === null) localStorage.removeItem("quakeQuest.v1"); else localStorage.setItem("quakeQuest.v1", saved); } catch (e) { /* ignore */ }
+        }
+    });
+
     var failed = results.filter(function (result) { return !result.passed; });
     var list = document.getElementById("results");
     results.forEach(function (result) {

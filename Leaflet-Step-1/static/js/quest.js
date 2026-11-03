@@ -143,7 +143,8 @@
             tsunami: p.hasTsunami === true || Number(p.tsunami) === 1,
             induced: Boolean(p.origin && p.origin.isInduced),
             felt: Number(p.felt) || 0,
-            pager: Boolean(p.pager)
+            pager: Boolean(p.pager),
+            time: Number(p.time) || 0
         };
         if (c.induced) c.boundary.kind = "intraplate"; // blasts and induced quakes aren't plate-boundary events
         if (id) classCache.set(id, c);
@@ -229,9 +230,17 @@
 
     function defaultState() {
         return {
-            v: 1, on: true, mode: "cadet", xp: 0, ship: 0, introSeen: false,
+            v: 1, on: true, mode: "cadet", xp: 0, introSeen: false,
+            // the fleet: ships you own (fleet indices, in the order they joined), the one in use,
+            // and how many promotion picks you have spent (one pick per rank above Cadet)
+            ships: [], ship: null, picksUsed: 0, fleetIntroSeen: false,
             answers: {}, collected: {}, badges: {},
-            stats: { predictions: 0, right: 0, streak: 0, bestStreak: 0, tutorAsks: 0, missionDays: 0, scientistPredictions: 0 },
+            stats: {
+                predictions: 0, right: 0, streak: 0, bestStreak: 0, tutorAsks: 0, missionDays: 0, scientistPredictions: 0,
+                // counters behind the ships' deeds
+                missionsDone: 0, deepPredictions: 0, oceanPredictions: 0, boundaryRight: 0, faultPredictions: 0,
+                bigPredictions: 0, freshPredictions: 0, scans: 0
+            },
             daily: null
         };
     }
@@ -243,6 +252,10 @@
         if (!s || s.v !== 1) return d;
         Object.keys(d).forEach(function (k) { if (s[k] === undefined) s[k] = d[k]; });
         Object.keys(d.stats).forEach(function (k) { if (s.stats[k] === undefined) s.stats[k] = 0; });
+        // saves from before earnable ships had every ship by rank: they choose a starter and
+        // keep one pick per rank they already hold
+        if (!Array.isArray(s.ships)) { s.ships = []; s.ship = null; s.picksUsed = 0; }
+        if (s.ships.indexOf(s.ship) === -1) s.ship = s.ships.length ? s.ships[0] : null;
         return s;
     }
 
@@ -311,6 +324,14 @@
         }
         state.answers[c.id] = { k: q.kind, g: guess, a: q.answer, ok: ok, t: Date.now() };
 
+        // deed counters (what kinds of quakes you've predicted)
+        if (c.depth >= 70) state.stats.deepPredictions++;
+        if (c.region === "ocean") state.stats.oceanPredictions++;
+        if (ok && q.kind === "boundary") state.stats.boundaryRight++;
+        if (c.boundary.kind === "transform" || c.boundary.kind === "collision") state.stats.faultPredictions++;
+        if (c.mag >= 5) state.stats.bigPredictions++;
+        if (c.time && Date.now() - c.time <= 3600 * 1000) state.stats.freshPredictions++;
+
         var logged = [];
         categoriesFor(c).forEach(function (key) {
             if (state.collected[key]) return;
@@ -329,6 +350,7 @@
             var met = m.match ? m.match(c) : daily[m.stat] >= m.goal;
             if (met) {
                 daily.done[id] = true;
+                state.stats.missionsDone++;
                 gained += D.XP.mission;
                 events.push({ icon: m.icon, text: "Mission done: " + m.text + " +" + D.XP.mission + " XP" });
             }
@@ -341,13 +363,53 @@
 
         state.xp += gained;
         awardBadges().forEach(function (ev) { gained += D.XP.badge; events.push(ev); });
+        awardShipsByDeed().forEach(function (ev) { events.push(ev); });
         var after = rankIndex(state.xp);
         if (after > before) {
-            var ship = shipName(after);
-            events.push({ icon: "🎖️", text: "Promoted to " + D.RANKS[after].title + "!" + (ship ? " " + ship + " joins your fleet." : "") });
+            var canPick = picksAvailable() > 0;
+            events.push({ icon: "🎖️", text: "Promoted to " + D.RANKS[after].title + "!" + (canPick ? " Choose a new airship in your Field Journal." : "") });
         }
         save();
         return { ok: ok, gained: gained, events: events, rankUp: after > before };
+    }
+
+    // ---- the fleet: a starter of your choice, one more per promotion, or earned early by deeds
+    function fleetSize() { return typeof SATELLITE_FLEET !== "undefined" ? SATELLITE_FLEET.length : D.SHIPS.length; }
+    function owns(i) { return state.ships.indexOf(i) !== -1; }
+    function needsStarter() { return state.ships.length === 0; }
+    function picksAvailable() {
+        if (needsStarter()) return 0;
+        var unowned = fleetSize() - state.ships.length;
+        return Math.max(0, Math.min(unowned, rankIndex(state.xp) - state.picksUsed));
+    }
+    // how: "starter", "pick" (a promotion) or "deed"; returns false if not allowed
+    function addShip(i, how) {
+        if (i < 0 || i >= fleetSize() || owns(i)) return false;
+        if (how === "starter" && !needsStarter()) return false;
+        if (how === "pick" && picksAvailable() < 1) return false;
+        if (how === "deed" && (needsStarter() || !D.SHIPS[i].deedTest(state))) return false;
+        state.ships.push(i);
+        if (how === "pick") state.picksUsed++;
+        if (state.ship === null) state.ship = i;
+        return true;
+    }
+    // deeds count only once you have a starter (the starter is always your own choice)
+    function awardShipsByDeed() {
+        var events = [];
+        if (needsStarter()) return events;
+        D.SHIPS.forEach(function (s, i) {
+            if (owns(i) || !s.deedTest(state)) return;
+            addShip(i, "deed");
+            events.push({ icon: "🛸", text: shipName(i) + " joins your fleet for your deed: " + s.deed.toLowerCase() + "! Its " + s.instrument + " finds " + s.finds + "." });
+        });
+        return events;
+    }
+    function chooseShip(i, how) {
+        if (!addShip(i, how)) return false;
+        awardShipsByDeed().forEach(function (ev) { setTimeout(function () { toast(ev.icon, ev.text); }, 600); });
+        save();
+        renderScanButton();
+        return true;
     }
 
     // newly earned badges: recorded, XP added, returned as toast events
@@ -505,6 +567,155 @@
     }
     function refreshPopupSize() { if (typeof keepQuakePopupInView === "function") requestAnimationFrame(keepQuakePopupInView); }
 
+    // ================================================================ scanning (each ship's instrument)
+    function shipColor(i) {
+        var fleet = typeof SATELLITE_FLEET !== "undefined" ? SATELLITE_FLEET : null;
+        return (fleet && fleet[i] && fleet[i].color) || "#fbbf24";
+    }
+    function scanContext() {
+        var daily = ensureDaily();
+        return {
+            newKinds: function (c) { return categoriesFor(c).some(function (k) { return !state.collected[k]; }); },
+            missionMatch: function (c) {
+                return daily.missions.some(function (id) { var m = missionDef(id); return m.match && !daily.done[id] && m.match(c); });
+            }
+        };
+    }
+    // quakes on the map you haven't predicted that this ship's instrument picks up
+    function scanMatches(i) {
+        var s = D.SHIPS[i];
+        var ctx = scanContext();
+        var feats = (typeof currentGeojson !== "undefined" && currentGeojson && currentGeojson.features) || [];
+        var hits = feats.filter(function (f) {
+            var c = classifyQuake(f);
+            return c && !state.answers[c.id] && s.match(c, ctx);
+        });
+        hits.sort(s.sort === "time"
+            ? function (a, b) { return Number(b.properties.time) - Number(a.properties.time); }
+            : function (a, b) { return Number(b.properties.mag) - Number(a.properties.mag); });
+        return hits;
+    }
+
+    var scan = null; // { ship, hits, next }
+    function getMap() {
+        return window.earthquakeApp && typeof window.earthquakeApp.getMap === "function" ? window.earthquakeApp.getMap() : null;
+    }
+    // (map.isStyleLoaded() stays false while the airships animate, so just try, and retry
+    // briefly if the map isn't ready for a new layer yet)
+    function setScanRings(hits, color, tries) {
+        var map = getMap();
+        if (!map || !map.getSource) return;
+        var data = { type: "FeatureCollection", features: hits.map(function (f) { return { type: "Feature", geometry: f.geometry, properties: {} }; }) };
+        try {
+            if (!map.getSource("quest-scan")) {
+                if (!hits.length) return;
+                map.addSource("quest-scan", { type: "geojson", data: data });
+                map.addLayer({
+                    id: "quest-scan-rings", type: "circle", source: "quest-scan",
+                    paint: { "circle-radius": 15, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 3, "circle-stroke-color": color, "circle-stroke-opacity": 0.95 }
+                });
+            } else {
+                map.getSource("quest-scan").setData(data);
+                map.setPaintProperty("quest-scan-rings", "circle-stroke-color", color);
+            }
+        } catch (e) {
+            if ((tries || 0) < 10) setTimeout(function () { setScanRings(hits, color, (tries || 0) + 1); }, 300);
+        }
+    }
+
+    function startScan() {
+        if (needsStarter()) { openJournal("fleet"); return; }
+        var i = state.ship;
+        scan = { ship: i, hits: scanMatches(i), next: 0 };
+        state.stats.scans++;
+        save();
+        setScanRings(scan.hits, shipColor(i));
+        renderScanPanel();
+    }
+    function endScan() {
+        scan = null;
+        setScanRings([], "#fbbf24");
+        renderScanPanel();
+    }
+    function flyToNextHit() {
+        if (!scan || !scan.hits.length) return;
+        // skip any predicted since the scan started
+        while (scan.next < scan.hits.length && state.answers[classifyQuake(scan.hits[scan.next]).id]) scan.next++;
+        if (scan.next >= scan.hits.length) { scan.hits = scanMatches(scan.ship); scan.next = 0; setScanRings(scan.hits, shipColor(scan.ship)); }
+        if (!scan.hits.length) { renderScanPanel(); return; }
+        var target = scan.hits[scan.next];
+        scan.next++;
+        renderScanPanel();
+        if (typeof flyToQuake === "function") flyToQuake(target);
+    }
+
+    function renderScanButton() {
+        var btn = document.getElementById("quest-scan-btn");
+        if (!btn) return;
+        btn.hidden = !state.on;
+        var dot = btn.querySelector(".quest-scan-dot");
+        dot.style.background = needsStarter() ? "#94a3b8" : shipColor(state.ship);
+        btn.setAttribute("aria-label", needsStarter() ? "Choose your first airship to start scanning for quakes"
+            : "Scan with " + shipName(state.ship) + "'s " + D.SHIPS[state.ship].instrument);
+    }
+    function renderScanPanel() {
+        var host = document.getElementById("map-id");
+        var panel = document.getElementById("quest-scan-panel");
+        if (!scan) { if (panel) panel.hidden = true; return; }
+        if (!panel) {
+            panel = el("div", "quest-scan-panel");
+            panel.id = "quest-scan-panel";
+            panel.setAttribute("role", "region");
+            panel.setAttribute("aria-live", "polite");
+            host.appendChild(panel);
+        }
+        panel.hidden = false;
+        panel.replaceChildren();
+        var s = D.SHIPS[scan.ship];
+        var head = el("div", "quest-scan-head");
+        var dot = el("span", "quest-scan-dot");
+        dot.style.background = shipColor(scan.ship);
+        head.appendChild(dot);
+        head.appendChild(el("p", "quest-scan-title", s.icon + " " + shipName(scan.ship) + " · " + s.instrument));
+        var x = el("button", "quest-scan-close", "✕");
+        x.type = "button";
+        x.setAttribute("aria-label", "Stop scanning");
+        x.addEventListener("click", endScan);
+        head.appendChild(x);
+        panel.appendChild(head);
+        var n = scan.hits.length;
+        panel.appendChild(el("p", "quest-scan-text", n
+            ? (n === 1 ? "1 quake found" : n + " quakes found") + " that you haven't predicted yet, ringed on the map"
+              + (n > 1 ? (s.sort === "time" ? ", newest first." : ", biggest first.") : ".")
+            : "Nothing new for this instrument on the map right now. Try another airship, or a longer time range."));
+        var row = el("div", "quest-scan-actions");
+        if (n) {
+            var go = el("button", "quest-go", scan.next === 0 ? "Fly to the first" : "Fly to the next (" + Math.min(scan.next + 1, n) + " of " + n + ")");
+            go.type = "button";
+            go.addEventListener("click", flyToNextHit);
+            row.appendChild(go);
+        }
+        if (state.ships.length > 1) {
+            var sw = el("button", "quest-scan-switch", "Change airship");
+            sw.type = "button";
+            sw.addEventListener("click", function () { openJournal("fleet"); });
+            row.appendChild(sw);
+        }
+        panel.appendChild(row);
+    }
+    function mountScanButton() {
+        var host = document.getElementById("map-id");
+        if (!host || document.getElementById("quest-scan-btn")) return;
+        var btn = el("button", "quest-scan-btn");
+        btn.id = "quest-scan-btn";
+        btn.type = "button";
+        btn.appendChild(el("span", "quest-scan-dot"));
+        btn.appendChild(el("span", null, "📡 Scan"));
+        btn.addEventListener("click", function () { if (scan) endScan(); else startScan(); });
+        host.appendChild(btn);
+        renderScanButton();
+    }
+
     // ================================================================ header chip + journal
     function renderChip() {
         var chip = document.getElementById("quest-chip");
@@ -512,6 +723,8 @@
         var r = rankIndex(state.xp);
         chip.querySelector(".quest-chip-rank").textContent = D.RANKS[r].title;
         chip.querySelector(".quest-chip-xp").textContent = state.xp + " XP";
+        // a dot when there's a ship to choose (the starter, or a promotion pick)
+        chip.classList.toggle("has-pick", needsStarter() || picksAvailable() > 0);
     }
 
     function mountChip() {
@@ -537,6 +750,7 @@
     var lastFocus = null;
     function openJournal(tab) {
         if (tab) journalTab = tab;
+        else if (needsStarter() || picksAvailable() > 0) journalTab = "fleet"; // a ship to choose comes first
         ensureDaily();
         var ov = document.getElementById("quest-journal");
         if (!ov) {
@@ -599,7 +813,7 @@
         // settings
         var set = el("div", "quest-settings");
         set.appendChild(segmented("Level", [["cadet", "🧒 Cadet"], ["scientist", "🥼 Scientist"]], state.mode, function (v) { state.mode = v; save(); renderJournal(); refreshPopup(); }));
-        set.appendChild(segmented("Questions in popups", [["on", "On"], ["off", "Off"]], state.on ? "on" : "off", function (v) { state.on = v === "on"; save(); renderJournal(); refreshPopup(); }));
+        set.appendChild(segmented("Questions in popups", [["on", "On"], ["off", "Off"]], state.on ? "on" : "off", function (v) { state.on = v === "on"; save(); if (!state.on) endScan(); renderScanButton(); renderJournal(); refreshPopup(); }));
         dlg.appendChild(set);
 
         // tabs
@@ -716,43 +930,96 @@
         panel.appendChild(grid);
     }
 
-    function renderFleet(panel) {
+    function button(text, cls, onClick) {
+        var b = el("button", cls || "quest-go", text);
+        b.type = "button";
+        b.addEventListener("click", onClick);
+        return b;
+    }
+    function shipRow(i, extraClass) {
         var fleet = typeof SATELLITE_FLEET !== "undefined" ? SATELLITE_FLEET : [];
-        var r = rankIndex(state.xp);
-        panel.appendChild(el("p", "quest-note", "Each rank puts another survey airship under your command. Pick your flagship and fly with it."));
-        fleet.forEach(function (ship, i) {
-            var unlocked = i <= r;
-            var row = el("div", "quest-ship" + (unlocked ? "" : " is-locked") + (state.ship === i ? " is-flagship" : ""));
-            var dot = el("span", "quest-ship-dot");
-            dot.style.background = ship.color || "#fbbf24";
-            row.appendChild(dot);
-            var body = el("div", "quest-ship-body");
-            body.appendChild(el("p", "quest-ship-name", ship.name + (state.ship === i ? " · flagship" : "")));
-            body.appendChild(el("p", "quest-ship-meta", unlocked ? ship.tier : "Unlocks at " + D.RANKS[i].title + " (" + D.RANKS[i].xp + " XP)"));
-            row.appendChild(body);
-            if (unlocked) {
-                if (state.ship !== i) {
-                    var pick = el("button", "quest-go", "Make flagship");
-                    pick.type = "button";
-                    pick.addEventListener("click", function () { state.ship = i; save(); renderJournal(); });
-                    row.appendChild(pick);
-                } else {
-                    var fly = el("button", "quest-go", "Fly with her");
-                    fly.type = "button";
-                    fly.addEventListener("click", function () { closeJournal(); if (typeof showAirshipPopup === "function") showAirshipPopup(null, i); });
-                    row.appendChild(fly);
-                }
+        var ship = fleet[i] || {};
+        var s = D.SHIPS[i];
+        var row = el("div", "quest-ship" + (extraClass ? " " + extraClass : ""));
+        var dot = el("span", "quest-ship-dot");
+        dot.style.background = ship.color || "#fbbf24";
+        row.appendChild(dot);
+        var body = el("div", "quest-ship-body");
+        body.appendChild(el("p", "quest-ship-name", (ship.name || "Airship") + (state.ship === i && owns(i) ? " · in use" : "")));
+        body.appendChild(el("p", "quest-ship-instrument", s.icon + " " + s.instrument + ": finds " + s.finds + "."));
+        body.appendChild(el("p", "quest-ship-meta", s[state.mode === "scientist" ? "scientist" : "cadet"]));
+        row.appendChild(body);
+        return row;
+    }
+
+    function renderFleet(panel) {
+        var n = fleetSize();
+        if (needsStarter()) {
+            panel.appendChild(el("p", "quest-note quest-note-strong", "Choose your first airship. Each one carries a different survey instrument that finds certain kinds of quake for you."));
+            panel.appendChild(el("p", "quest-note", "You'll add another with every promotion, or sooner by completing a ship's deed."));
+            for (var i = 0; i < n; i++) {
+                (function (i) {
+                    var row = shipRow(i);
+                    row.appendChild(button("Choose", "quest-go", function () {
+                        if (chooseShip(i, "starter")) {
+                            toast("🛸", shipName(i) + " is yours! Tap 📡 Scan on the map to use her " + D.SHIPS[i].instrument + ".");
+                            renderJournal();
+                        }
+                    }));
+                    panel.appendChild(row);
+                }(i));
             }
+            return;
+        }
+        var picks = picksAvailable();
+        panel.appendChild(el("p", "quest-note", "Your fleet: " + state.ships.length + " of " + n + " airships. Tap 📡 Scan on the map to use the one in use."));
+        if (picks) {
+            panel.appendChild(el("p", "quest-pick-banner", "🎖️ Promotion: you may choose " + (picks === 1 ? "a new airship" : picks + " new airships") + " from the hangar below."));
+        }
+        state.ships.forEach(function (i) {
+            var row = shipRow(i, state.ship === i ? "is-flagship" : "");
+            var acts = el("div", "quest-ship-actions");
+            if (state.ship !== i) {
+                acts.appendChild(button("Use", "quest-go", function () { state.ship = i; save(); renderScanButton(); if (scan) endScan(); renderJournal(); }));
+            } else {
+                acts.appendChild(button("📡 Scan", "quest-go", function () { closeJournal(); startScan(); }));
+            }
+            acts.appendChild(button("Fly with her", "quest-go quest-go-quiet", function () { closeJournal(); if (typeof showAirshipPopup === "function") showAirshipPopup(null, i); }));
+            row.appendChild(acts);
             panel.appendChild(row);
         });
+        var hangar = [];
+        for (var j = 0; j < n; j++) if (!owns(j)) hangar.push(j);
+        if (hangar.length) {
+            panel.appendChild(el("h3", "quest-group", "In the hangar"));
+            var r = rankIndex(state.xp);
+            var nextRank = D.RANKS[r + 1];
+            panel.appendChild(el("p", "quest-note", "Earn one by its deed, or choose one at your next promotion" + (nextRank ? " (" + nextRank.title + ", " + nextRank.xp + " XP)." : ".")));
+            hangar.forEach(function (j) {
+                var row = shipRow(j, picks ? "" : "is-locked");
+                row.querySelector(".quest-ship-body").appendChild(el("p", "quest-ship-deed", "Deed: " + D.SHIPS[j].deed + "."));
+                if (picks) {
+                    row.appendChild(button("Choose", "quest-go", function () {
+                        if (chooseShip(j, "pick")) { toast("🛸", shipName(j) + " joins your fleet!"); renderJournal(); }
+                    }));
+                }
+                panel.appendChild(row);
+            });
+        }
     }
 
     function init() {
         mountChip();
+        mountScanButton();
         if (!state.introSeen) {
             state.introSeen = true;
+            state.fleetIntroSeen = true;
             save();
-            setTimeout(function () { toast("🧭", "New: Quake Quest! Tap a quake and predict before you peek. Your Field Journal is at the top."); }, 2500);
+            setTimeout(function () { toast("🧭", "New: Quake Quest! Choose your first airship in the Field Journal at the top, then tap a quake and predict before you peek."); }, 2500);
+        } else if (!state.fleetIntroSeen) {
+            state.fleetIntroSeen = true;
+            save();
+            setTimeout(function () { toast("🛸", "New: airships are earned now, and each one helps you find quakes. Choose your first in the Field Journal (🧭)."); }, 2500);
         }
     }
 
@@ -768,7 +1035,9 @@
             depthClass: depthClass, magnitudeClass: magnitudeClass, tntTonnes: tntTonnes, formatTnt: formatTnt,
             segmentDistanceKm: segmentDistanceKm, buildBoundaryIndex: buildBoundaryIndex, classifyBoundary: classifyBoundary,
             classifyQuake: classifyQuake, categoriesFor: categoriesFor, buildQuestion: buildQuestion, questionKinds: questionKinds,
-            recordAnswer: recordAnswer, rankIndex: rankIndex, ensureDaily: ensureDaily
+            recordAnswer: recordAnswer, rankIndex: rankIndex, ensureDaily: ensureDaily,
+            needsStarter: needsStarter, picksAvailable: picksAvailable, chooseShip: chooseShip, owns: owns, scanMatches: scanMatches, awardShipsByDeed: awardShipsByDeed,
+            loadState: loadState
         }
     };
 }());
