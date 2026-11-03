@@ -3526,3 +3526,21 @@ body {
   box-shadow: 0 0 6px rgba(245, 158, 11, 0.55) !important;
 }
 
+
+/* Tsunami flag wording (2026-11): the badge holds text plus a tsunami.gov link */
+.tsunami-popup-badge {
+  display: block;
+  grid-column: 1 / -1;
+  line-height: 1.35;
+}
+
+.tsunami-popup-badge a {
+  color: #fff;
+  text-decoration: underline;
+}
+
+a.tsunami-action-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

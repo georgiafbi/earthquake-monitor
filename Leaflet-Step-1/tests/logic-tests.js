@@ -294,6 +294,8 @@
         });
         assertEqual(banner.hidden, false, "banner is unhidden when tsunami warnings exist");
         assert(titleEl.textContent.indexOf("TSUNAMI") !== -1, "title mentions TSUNAMI");
+        assert(!/WARNING/i.test(titleEl.textContent), "the USGS flag is not a warning; the title must not claim one");
+        assert(/not a warning/i.test(descEl.textContent), "description says the flag is not a warning");
         assert(descEl.textContent.indexOf("2") !== -1, "description displays event count");
         assert(descEl.textContent.indexOf("Honshu, Japan") !== -1, "description displays strongest location");
 
@@ -313,6 +315,10 @@
         var tsunamiBadge = popupWithTsunami.querySelector(".tsunami-popup-badge");
         assert(tsunamiBadge !== null, "popup has tsunami warning badge element");
         assert(tsunamiBadge.textContent.indexOf("Tsunami") !== -1, "badge text mentions Tsunami");
+        assert(/not a warning/i.test(tsunamiBadge.textContent), "badge says the flag is not a warning");
+        var officialLink = tsunamiBadge.querySelector("a");
+        assert(officialLink && officialLink.href === "https://www.tsunami.gov/", "badge links to official tsunami alerts");
+        assertEqual(officialLink.rel, "noopener noreferrer", "external link is opened safely");
 
         var popupWithoutTsunami = helpers.buildPopupContent({
             place: "San Jose, California",

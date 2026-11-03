@@ -488,6 +488,15 @@ function classifyGeography(lon, lat) {
     };
 }
 
+function createTsunamiGovLink() {
+    var link = document.createElement("a");
+    link.href = "https://www.tsunami.gov/";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "tsunami.gov";
+    return link;
+}
+
 function hasTsunamiWarning(feature) {
     if (!feature || !feature.properties) {
         return false;
@@ -682,7 +691,7 @@ function exportActiveFeaturesToCsv(features) {
     var headers = [
         "id", "timestamp_utc", "place", "magnitude", "depth_km",
         "latitude", "longitude", "event_type", "event_origin", "is_induced",
-        "alert_level", "felt_reports", "mmi_intensity", "tsunami_warning",
+        "alert_level", "felt_reports", "mmi_intensity", "usgs_tsunami_flag",
         "energy_joules", "usgs_url"
     ];
     var rows = [headers.join(",")];
@@ -1075,7 +1084,9 @@ function buildPopupContent(props) {
     if (props.hasTsunami === true || props.tsunami === 1 || props.tsunami === "1") {
         var tsunamiBadge = document.createElement("p");
         tsunamiBadge.className = "tsunami-popup-badge";
-        tsunamiBadge.textContent = "🌊 Tsunami Warning / Threat Issued";
+        // USGS sets tsunami=1 for large oceanic quakes; it is not a warning.
+        tsunamiBadge.textContent = "🌊 Tsunami possible: large ocean quake. Not a warning; official alerts at ";
+        tsunamiBadge.appendChild(createTsunamiGovLink());
         content.appendChild(tsunamiBadge);
     }
 
@@ -1676,14 +1687,17 @@ function updateTsunamiAlertBanner(summary) {
     var descEl = document.getElementById("tsunami-alert-desc");
     var filterBtn = document.getElementById("tsunami-filter-btn");
 
+    // The USGS tsunami flag marks quakes big enough, in ocean regions, for a
+    // tsunami to be possible. It is not a warning, so the banner must not say so.
     if (titleEl) {
-        titleEl.textContent = data.count === 1 ? "TSUNAMI WARNING ACTIVE" : "TSUNAMI WARNINGS ACTIVE (" + data.count + ")";
+        titleEl.textContent = data.count === 1 ? "TSUNAMI-CAPABLE QUAKE" : "TSUNAMI-CAPABLE QUAKES (" + data.count + ")";
     }
     if (descEl) {
         var locText = data.strongestTsunami && data.strongestTsunami.properties && data.strongestTsunami.properties.place
             ? " · Strongest: " + (data.strongestTsunami.properties.magnitudeLabel || formatMagnitudeLabel(data.strongestTsunami.properties.mag)) + " M " + data.strongestTsunami.properties.place
             : "";
-        descEl.textContent = data.count + " event" + (data.count === 1 ? "" : "s") + " with NOAA/USGS tsunami threat generated" + locText;
+        descEl.textContent = data.count + (data.count === 1 ? " ocean quake is" : " ocean quakes are")
+            + " large enough that USGS flags a tsunami as possible. This is not a warning" + locText;
     }
     if (filterBtn) {
         filterBtn.classList.toggle("is-active", isTsunamiFilterActive);
