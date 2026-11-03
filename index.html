@@ -9,6 +9,13 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>Earthquake Monitor</title>
+  <script>
+    // The app lives on Cloudflare (with the Claude explainer); GitHub Pages copies forward there.
+    // Update this URL when the custom domain is connected.
+    if (location.hostname === "georgiafbi.github.io") {
+      location.replace("https://earthquake-monitor.georgiafbi.workers.dev/" + location.search + location.hash);
+    }
+  </script>
 
   <!-- MapLibre GL CSS -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" />

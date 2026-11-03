@@ -5,6 +5,8 @@ name = "earthquake-monitor"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true      # https://earthquake-monitor.georgiafbi.workers.dev
+preview_urls = false    # no public per-version preview URLs
 
 [assets]
 directory = ".."            # the repo root; exclusions in ../.assetsignore
