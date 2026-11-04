@@ -1216,39 +1216,141 @@ function buildPopupContent(props) {
 // triggers a second request.
 var quakeExplanations = new Map();
 
-// The map clips overflow, and MapLibre picks a popup's anchor only when it
-// opens, so a popup that grows (USGS context, an explanation) can run off the
-// bottom edge. Pan just enough to bring it back, preferring its top edge.
-function keepQuakePopupInView() {
-    if (!activeQuakePopup || !activeQuakePopup.isOpen() || !globeMap) {
+// Keeping popups inside the map. The map clips overflow, and MapLibre picks a
+// popup's side only when it no longer fits, so a tall popup (a Quake Quest
+// question, USGS context, an explanation) could run off an edge. Panning alone
+// can't fix that near the poles: the globe won't pan past them. So every popup
+// is placed on the side of its point with the most room, shifted sideways to
+// stay inside, and capped to that room (its content scrolls). Panning is only
+// a bonus that reveals more of a capped popup.
+var POPUP_FIT_MARGIN = 10;
+var POPUP_KEEP_POINT_PX = 36; // when panning for room, keep the quake this far inside the edge
+
+function popupOffsetPx(popup) {
+    var o = popup.options && popup.options.offset;
+    return typeof o === "number" ? o : 10;
+}
+
+// pan: may the map move to show more of a popup that had to be capped?
+function fitPopupInMap(popup, pan) {
+    if (!popup || !popup.isOpen() || !globeMap) return;
+    var element = popup.getElement();
+    var content = element && element.querySelector(".maplibregl-popup-content");
+    if (!content) return;
+    var mapElement = globeMap.getContainer();
+    var mapW = mapElement.clientWidth;
+    var mapH = mapElement.clientHeight;
+    var point = globeMap.project(popup.getLngLat());
+    var margin = POPUP_FIT_MARGIN;
+    var offset = popupOffsetPx(popup);
+
+    // Full (uncapped) height from scrollHeight: no need to remove the cap to
+    // measure, so refitting on every map move doesn't thrash the layout.
+    content.style.boxSizing = "border-box";
+    var width = element.offsetWidth;
+    var tip = Math.max(0, element.offsetHeight - content.offsetHeight);
+    var natural = content.scrollHeight + (content.offsetHeight - content.clientHeight);
+    var roomAbove = point.y - offset - tip - margin;
+    var roomBelow = mapH - point.y - offset - tip - margin;
+
+    // Above the point reads naturally; below if only that fits; otherwise the roomier side
+    var below;
+    if (natural <= roomAbove) below = false;
+    else if (natural <= roomBelow) below = true;
+    else below = roomBelow > roomAbove;
+    var room = below ? roomBelow : roomAbove;
+
+    // Sideways: centred if it fits, else grow away from the nearer edge
+    var horizontal = "";
+    var dx = 0;
+    var half = width / 2;
+    if (point.x - half < margin || point.x + half > mapW - margin) {
+        if (point.x + width <= mapW - margin && point.x >= margin) horizontal = "left";
+        else if (point.x - width >= margin && point.x <= mapW - margin) horizontal = "right";
+        else dx = point.x - mapW / 2; // wider than either side: bring the point to the middle
+    }
+    var anchor = (below ? "top" : "bottom") + (horizontal ? "-" + horizontal : "");
+    if (popup.options.anchor !== anchor) {
+        popup.options.anchor = anchor;
+        popup.setOffset(popup.options.offset); // public way to re-run MapLibre's placement
+    }
+
+    // Cap to the room on that side; the rest scrolls (styles only written on change)
+    var cap = Math.max(120, Math.floor(room));
+    var maxHeight = natural > cap ? cap + "px" : "";
+    if (content.style.maxHeight !== maxHeight) {
+        content.style.maxHeight = maxHeight;
+        content.style.overflowY = maxHeight ? "auto" : "";
+    }
+
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (pan) popup._fitCorrections = 0;
+    // The point itself got too close to the popup's edge (near a pole a pan
+    // moves the curved surface further than asked): nudge it back. Moving toward
+    // the equator is never blocked, and two nudges at most, so this can't loop.
+    var tooFar = below ? point.y - POPUP_KEEP_POINT_PX : point.y - (mapH - POPUP_KEEP_POINT_PX);
+    if (((below && tooFar < -2) || (!below && tooFar > 2)) && (popup._fitCorrections || 0) < 2) {
+        popup._fitCorrections = (popup._fitCorrections || 0) + 1;
+        globeMap.panBy([0, tooFar], { duration: reduceMotion ? 0 : 250 });
         return;
     }
-    var popupElement = activeQuakePopup.getElement();
-    var mapRect = globeMap.getContainer().getBoundingClientRect();
-    var margin = 12;
-    // A popup taller than the map can never fit by panning; cap it and let
-    // its content scroll instead. The tip sits outside the content box, so
-    // measure that overhead rather than guessing it.
-    var content = popupElement.querySelector(".maplibregl-popup-content");
-    if (content) {
-        content.style.boxSizing = "border-box";
-        content.style.maxHeight = "";
-        var overhead = popupElement.getBoundingClientRect().height - content.getBoundingClientRect().height;
-        content.style.maxHeight = Math.max(160, mapRect.height - margin * 2 - overhead) + "px";
-        content.style.overflowY = "auto";
-    }
-    var popupRect = popupElement.getBoundingClientRect();
+
+    if (!pan) return;
+    // Show more of a capped popup by moving the point toward its edge, as far as
+    // the globe allows (east-west always works; north-south stops at the poles).
     var dy = 0;
-    if (popupRect.bottom > mapRect.bottom - margin) {
-        dy = popupRect.bottom - (mapRect.bottom - margin);
+    var missing = natural - cap;
+    if (missing > 1) {
+        var slack = below ? point.y - POPUP_KEEP_POINT_PX : mapH - point.y - POPUP_KEEP_POINT_PX;
+        dy = Math.max(0, Math.min(missing, slack)) * (below ? 1 : -1);
     }
-    if (popupRect.top - dy < mapRect.top + margin) {
-        dy = popupRect.top - (mapRect.top + margin);
+    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        globeMap.panBy([dx, dy], { duration: reduceMotion ? 0 : 350 });
+        // the moveend listener from trackPopupFit refits with the new room
     }
-    if (Math.abs(dy) > 1) {
-        var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        globeMap.panBy([0, dy], { duration: reduceMotion ? 0 : 350 });
-    }
+}
+
+// Refit a popup whenever the map settles or its content changes size (a
+// clue opened, details expanded, an explanation arrived); stop when it closes.
+function trackPopupFit(popup) {
+    if (!popup || !globeMap) return popup;
+    var onMoveEnd = function () { fitPopupInMap(popup, false); };
+    var watched = null;
+    var resizeObserver = typeof ResizeObserver === "function"
+        ? new ResizeObserver(function () { requestAnimationFrame(function () { fitPopupInMap(popup, true); }); })
+        : null;
+    var watchContent = function () {
+        // observe the content INSIDE the capped box: capping never resizes it, so no loop
+        var box = popup.getElement() && popup.getElement().querySelector(".maplibregl-popup-content");
+        // (MapLibre puts the close button first in the box; watch the content beside it)
+        var inner = box && Array.prototype.find.call(box.children, function (c) { return !c.classList.contains("maplibregl-popup-close-button"); });
+        if (resizeObserver && inner && inner !== watched) {
+            if (watched) resizeObserver.unobserve(watched);
+            resizeObserver.observe(inner);
+            watched = inner;
+        }
+    };
+    globeMap.on("moveend", onMoveEnd);
+    globeMap.on("resize", onMoveEnd);
+    popup.on("close", function () {
+        globeMap.off("moveend", onMoveEnd);
+        globeMap.off("resize", onMoveEnd);
+        if (resizeObserver) resizeObserver.disconnect();
+    });
+    popup._watchFitContent = watchContent;
+    return popup;
+}
+
+// Fit a popup now (after it opens or its content was replaced)
+function fitPopupSoon(popup) {
+    requestAnimationFrame(function () {
+        if (popup && popup._watchFitContent) popup._watchFitContent();
+        fitPopupInMap(popup, true);
+    });
+}
+
+function keepQuakePopupInView() {
+    fitPopupSoon(activeQuakePopup);
 }
 
 function getExplainApiUrl() {
@@ -1385,12 +1487,13 @@ function openQuakePopup(coordinates, properties) {
 
     setActiveQuakePopup(popup);
     popup.addTo(globeMap);
+    trackPopupFit(popup);
     // Wait for any fly-to in progress, then make sure the whole popup
-    // (including the Explain button) is inside the map, not clipped.
+    // (including the Explain button and Quake Quest answers) is inside the map.
     if (globeMap.isMoving()) {
-        globeMap.once("moveend", keepQuakePopupInView);
+        globeMap.once("moveend", function () { fitPopupSoon(popup); });
     } else {
-        requestAnimationFrame(keepQuakePopupInView);
+        fitPopupSoon(popup);
     }
 
     if (properties.detail) {
@@ -4531,6 +4634,8 @@ function showAirshipPopup(lngLat, targetVesselIdx) {
         .setLngLat(lngLat || [pos.lon, pos.lat])
         .setDOMContent(popupContent)
         .addTo(globeMap);
+    trackPopupFit(airshipActivePopup);
+    fitPopupSoon(airshipActivePopup);
 }
 
 function flyToAirship() {
@@ -5373,10 +5478,12 @@ function createMap() {
                 if (plateClass) appendPopupRow(popupContent, "What happens here", plateClass.motion, true);
                 appendPopupRow(popupContent, "Dataset model", "PB2002 (Bird, 2003)", true);
 
-                new maplibregl.Popup({ maxWidth: "320px", offset: 8 })
+                var platePopup = new maplibregl.Popup({ maxWidth: "320px", offset: 8 })
                     .setLngLat(event.lngLat)
                     .setDOMContent(popupContent)
                     .addTo(globeMap);
+                trackPopupFit(platePopup);
+                fitPopupSoon(platePopup);
             });
 
             globeMap.on("mouseenter", "plate-boundaries-line", function () {
@@ -5642,6 +5749,10 @@ function createMap() {
                 return;
             }
 
+            // Stop spinning while the player reads (and answers): on phones the globe
+            // turns 10 degrees a second, which carried the popup off the edge. Picking a
+            // quake from the list already did this; the pause/play button resumes it.
+            setAutoRotate(false);
             selectQuake(feature);
             openQuakePopup(feature.geometry.coordinates.slice(0, 2), feature.properties);
         }
@@ -6126,6 +6237,9 @@ window.earthquakeApp.test = {
     markRegionalChampions: markRegionalChampions,
     normalizeEarthquakeFeature: normalizeEarthquakeFeature,
     setActiveQuakePopup: setActiveQuakePopup,
+    openQuakePopup: openQuakePopup,
+    fitPopupInMap: fitPopupInMap,
+    setAutoRotate: setAutoRotate,
     setMapPanelExpanded: setMapPanelExpanded,
     transitionChampionPingMotion: transitionChampionPingMotion,
     updateSummary: updateSummary,

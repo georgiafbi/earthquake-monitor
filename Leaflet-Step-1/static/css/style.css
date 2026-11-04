@@ -302,6 +302,7 @@ body {
   box-sizing: border-box;
   width: 100%;
   height: 72vh;
+  height: 72svh; /* phones: sized with the browser bar showing, so the map never hides under it */
   min-height: 460px;
   border-radius: 22px;
   overflow: hidden;
