@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  The link preview's art: the real app in a same-origin frame, posed on the Ring of Fire with
+  every panel hidden, so only the globe, the live quakes and the airships are left.
+  npm start, then headless Chrome (WebGL via SwiftShader) at a 1200x630 window:
+    chrome - -headless=new - -use-angle=swiftshader - -enable-unsafe-swiftshader - -window-size=1200,630
+      - -force-device-scale-factor=2 - -virtual-time-budget=45000
+      - -screenshot=globe.png http://localhost:3000/Leaflet-Step-1/tests/og-globe.html
+  (without the spaces in the dashes) and save it as emberkite-site/scripts/og-src/quakes-globe.webp.
+  The card built from it must keep the map's credit: see og-build.py.
+-->
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#04060f;overflow:hidden}iframe{border:0;display:block;width:100vw;height:100vh}</style>
+<iframe id="f" src="/index.html"></iframe>
+<script>
+  const f = document.getElementById('f');
+  f.onload = () => {
+    const w = f.contentWindow, d = f.contentDocument;
+    const s = d.createElement('style');
+    s.textContent = `
+      body > :not(.app-shell), .app-shell > :not(#map-wrap), #map-wrap > :not(#map-id),
+      .maplibregl-ctrl, .maplibregl-popup, .quest-scan-btn { display: none !important; }
+      html, body, .app-shell { margin: 0 !important; padding: 0 !important; background: #04060f !important; }
+      #map-wrap { position: fixed !important; inset: 0 !important; margin: 0 !important; border: 0 !important; border-radius: 0 !important; }
+      #map-id { width: 100vw !important; height: 100vh !important; border-radius: 0 !important; }`;
+    d.head.appendChild(s);
+    // Kept up until the screenshot: the app's own start-up moves the camera and picks its
+    // basemap once the feed arrives, so posing just once loses that race.
+    let sized = false;
+    setInterval(() => {
+      const map = w.eval('typeof globeMap === "undefined" ? null : globeMap');
+      if (!map || !map.getSource('earthquakes')) return;
+      w.earthquakeApp.test.setAutoRotate(false);
+      if (!sized) { map.resize(); sized = true; }
+      ['light', 'dark', 'streets', 'outdoors'].forEach(k => map.setLayoutProperty('base-' + k, 'visibility', 'none'));
+      map.setLayoutProperty('base-satellite', 'visibility', 'visible');
+      map.jumpTo({ center: [160, 12], zoom: 2.3, bearing: 0, pitch: 0, padding: { left: 460, right: 0, top: 0, bottom: 0 } });
+    }, 250);
+  };
+</script>
