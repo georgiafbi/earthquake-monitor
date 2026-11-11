@@ -1418,6 +1418,46 @@
         }
     });
 
+    function fakeStore(initial) {
+        var data = Object.assign({}, initial);
+        return {
+            data: data,
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+            setItem: function (k, v) { data[k] = String(v); }
+        };
+    }
+
+    test("What's new: the changelog is newest first, numbered without gaps, and complete", function () {
+        var U = window.quakeUpdates;
+        assert(U, "updates.js loaded");
+        U.CHANGELOG.forEach(function (u, i) {
+            assertEqual(u.v, U.CHANGELOG.length - i, "update " + u.title + " numbered in order");
+            assert(u.title && u.date && u.items.length, "update " + u.v + " has a title, a date and notes");
+        });
+        assertEqual(U.VERSION, U.CHANGELOG[0].v, "the version is the newest update");
+    });
+
+    test("What's new: returning visitors see what they missed once; first-timers never do", function () {
+        var U = window.quakeUpdates;
+        var newcomer = fakeStore({});
+        assertEqual(U.takeArrivalNotice(newcomer), null, "a first visit shows nothing");
+        assertEqual(newcomer.data[U.SEEN_KEY], String(U.VERSION), "and counts as up to date");
+        assertEqual(U.takeArrivalNotice(newcomer), null, "nothing the next time either");
+
+        var player = fakeStore({ "quakeQuest.v1": "{}" });
+        var shown = U.takeArrivalNotice(player);
+        assert(shown && shown.length >= 1, "a Quake Quest player who never saw an update sees the newest");
+        assertEqual(shown[0].v, U.VERSION, "newest first");
+        assert(shown.length <= 3, "at most three updates on arrival (the rest are under All updates)");
+        assertEqual(U.takeArrivalNotice(player), null, "only once");
+
+        var behindOne = fakeStore({});
+        behindOne.data[U.SEEN_KEY] = String(U.VERSION - 1);
+        var missed = U.takeArrivalNotice(behindOne);
+        assertEqual(missed.length, 1, "one update behind: just that one");
+        assertEqual(missed[0].v, U.VERSION, "the one they missed");
+    });
+
     var failed = results.filter(function (result) { return !result.passed; });
     var list = document.getElementById("results");
     results.forEach(function (result) {
