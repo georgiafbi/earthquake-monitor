@@ -363,6 +363,8 @@ body {
 .base-panel {
   top: 12px;
   right: 12px;
+  max-height: calc(var(--map-h, 100%) - 24px); /* never taller than the map itself */
+  overflow-y: auto;
 }
 
 .base-panel-header {
@@ -1061,7 +1063,8 @@ body {
   .base-panel.is-expanded {
     width: min(210px, calc(100% - 72px));
     padding: 4px 12px 10px;
-    max-height: calc(100% - 16px);
+    max-height: calc(var(--map-h, 100%) - 16px);
+    overscroll-behavior: contain;
     overflow-y: auto;
   }
 

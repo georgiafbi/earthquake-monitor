@@ -135,7 +135,7 @@
   .header-actions { flex-wrap: wrap; min-width: 0; row-gap: 6px; gap: 8px; }
   .range-label { display: none; }
   /* the map is short sideways: an opened layers panel scrolls instead of spilling over the legend */
-  .base-panel.is-expanded { max-height: calc(100% - 16px); overflow-y: auto; }
+  .base-panel.is-expanded { max-height: calc(var(--map-h, 100%) - 16px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
 /* ================================================== finger-sized controls */

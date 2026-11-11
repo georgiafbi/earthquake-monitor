@@ -5048,6 +5048,21 @@ function buildMapPanels() {
         return;
     }
 
+    // #map-wrap also holds the legend under the map, so "100%" there is taller than the map.
+    // The layers panel caps itself to --map-h (the map's own height) and scrolls past that.
+    var mapBox = document.getElementById("map-id");
+    if (mapBox) {
+        var syncMapHeight = function () {
+            wrap.style.setProperty("--map-h", mapBox.offsetHeight + "px");
+        };
+        syncMapHeight();
+        if (typeof ResizeObserver === "function") {
+            new ResizeObserver(syncMapHeight).observe(mapBox);
+        } else {
+            window.addEventListener("resize", syncMapHeight);
+        }
+    }
+
     var basePanel = document.createElement("div");
     basePanel.className = "map-panel base-panel";
 
