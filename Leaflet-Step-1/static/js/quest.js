@@ -52,7 +52,13 @@
     function segmentDistanceKm(lon, lat, a, b) {
         var k = Math.cos(lat * Math.PI / 180) * 111.32;
         function x(l) { var d = l - lon; if (d > 180) d -= 360; if (d < -180) d += 360; return d * k; }
-        var ax = x(a[0]), ay = (a[1] - lat) * 110.57, bx = x(b[0]), by = (b[1] - lat) * 110.57;
+        // unwrap b next to a: for a segment on the far side of the planet, a and b could otherwise wrap to
+        // opposite ends (-180 and +180) and the segment would seem to run right through the point (found by
+        // Geology Bhalo: a Vanuatu swarm matched the Mid-Atlantic Ridge, 180 degrees away)
+        var db = b[0] - a[0];
+        if (db > 180) db -= 360;
+        if (db < -180) db += 360;
+        var ax = x(a[0]), ay = (a[1] - lat) * 110.57, bx = ax + db * k, by = (b[1] - lat) * 110.57;
         var dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
         var t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
         var px = ax + t * dx, py = ay + t * dy;

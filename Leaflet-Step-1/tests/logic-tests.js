@@ -1228,7 +1228,7 @@
             ["Hawaii hotspot", -155.3, 19.4, 5, "intraplate"],
             ["San Andreas Fault", -120.5, 36, 8, "transform"],
             ["Nepal Himalaya", 84.7, 28.2, 15, "collision"],
-            ["East Pacific Rise", -112.5, -20, 10, "divergent"],
+            ["East Pacific Rise", -112.5, -14, 10, "divergent"],
             ["Iceland", -18.5, 64.6, 10, "divergent"],
             ["Oklahoma", -97.5, 36, 5, "intraplate"],
             ["East African Rift (diffuse: not asked)", 36.5, -3, 10, null],
@@ -1237,6 +1237,11 @@
         expect.forEach(function (e) {
             assertEqual(QS.classifyBoundary(e[1], e[2], e[3], qIndex).kind, e[4], e[0]);
         });
+        // a boundary 180 degrees of longitude away must not wrap round and look close
+        var vanuatu = QS.classifyBoundary(165.625, -14.122, 10, qIndex);
+        var far = vanuatu.boundary && [vanuatu.boundary.plateA, vanuatu.boundary.plateB].join(" ");
+        assert(!/African|South American/.test(far || ""), "Vanuatu is not on the Mid-Atlantic Ridge (got " + far + ")");
+        assert(vanuatu.distanceKm > 20, "the nearest boundary to that Vanuatu quake is tens of km away, not " + vanuatu.distanceKm);
     });
 
     test("Quake Quest: questions always contain their answer; boundary is asked only when clear", function () {
@@ -1361,7 +1366,7 @@
     test("Quake Quest fleet: each instrument finds its own kind of unpredicted quake", function () {
         var feats = [
             quake("deep-tonga", -178.2, -18, 560, 5.5),
-            quake("ridge-epr", -112.5, -20, 10, 4.8),
+            quake("ridge-epr", -112.5, -14, 10, 4.8),
             quake("hawaii", -155.3, 19.4, 5, 3.1),
             quake("newest", -120.5, 36, 8, 2.1, { time: Date.now() - 60 * 1000 })
         ];
