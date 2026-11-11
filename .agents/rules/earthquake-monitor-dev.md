@@ -12,6 +12,7 @@
 ## Hosting
 - **Cloudflare Worker** (`worker/`, deploys on every push to master): serves the repo root as static assets (exclusions in `.assetsignore`) and `/api/explain`, the Claude quake explainer. The Anthropic key is a Worker secret. See `worker/README.md`.
 - GitHub Pages copies of the site hide the Explain button (no API there).
+- **Emberkite tags**: Quake Quest and Explain (plus the tutor) need a signed-in Emberkite tag; the map stays open to everyone. The browser sends the device token in the `X-Emberkite-Token` header (never the URL), the Worker answers 401 without a valid one, and cache keys never include it.
 
 ## Tooling & Commands
 - **Local Dev Server**: `npm start` or `npm run dev` (starts zero-dependency static server on `http://localhost:3000`)

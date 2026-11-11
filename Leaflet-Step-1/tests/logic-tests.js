@@ -1185,6 +1185,47 @@
         }
     });
 
+    test("Explain asks signed-out visitors for an Emberkite tag and sends a player's token in a header", function () {
+        var quest = window.quakeQuest;
+        var realFetch = window.fetch;
+        var calls = [];
+        window.fetch = function (url, options) { calls.push({ url: url, options: options || {} }); return new Promise(function () {}); };
+        window.EXPLAIN_API_URL = "http://localhost:8787/api/explain";
+        quest.setAccountForTests(null);
+        var token = "f".repeat(48);
+        try {
+            var base = { place: "Test", mag: 4, depth: 10, time: 0, eventId: "us0006" };
+            var section = helpers.buildPopupContent(base).querySelector(".quake-explain");
+            document.body.appendChild(section);
+            section.querySelector(".quake-explain-btn").click();
+            assertEqual(calls.length, 0, "nothing is sent without a tag");
+            assert(/needs an Emberkite tag/.test(section.querySelector(".quake-explain-needs-tag").textContent), "says Explain needs an Emberkite tag");
+            var signIn = section.querySelector(".quake-explain-btn");
+            assertEqual(signIn.textContent, "Sign in or claim a tag", "offers the sign-in");
+
+            signIn.click();
+            var journal = document.getElementById("quest-journal");
+            assert(journal && !journal.hidden, "the Quest account panel opens");
+            assert(/Quake Quest needs an Emberkite tag/.test(journal.textContent), "with its one line about the tag");
+            assert(journal.querySelector(".quest-account") && !journal.querySelector(".quest-tab"), "only the sign-in while signed out");
+            journal.hidden = true;
+
+            // signing in (quest.js announces it) explains the quake that was asked about
+            quest.setAccountForTests({ id: 7, tag: "Tester", token: token });
+            window.dispatchEvent(new CustomEvent("emberkite:account", { detail: { signedIn: true } }));
+            assertEqual(calls.length, 1, "the explanation is requested right after sign-in");
+            assertEqual(calls[0].url, "http://localhost:8787/api/explain?id=us0006", "the token is not in the URL");
+            assertEqual(calls[0].options.headers["X-Emberkite-Token"], token, "it travels in the X-Emberkite-Token header");
+            assertEqual(section.querySelector(".quake-explain-status").textContent, "Claude is reading the USGS record…", "the open popup shows it coming");
+            section.remove();
+        } finally {
+            window.fetch = realFetch;
+            quest.setAccountForTests(null);
+            delete window.EXPLAIN_API_URL;
+            helpers.quakeExplanations.delete("us0006");
+        }
+    });
+
     test("produces explosive audio profile for human-induced events", function () {
         var naturalProfile = helpers.getSeismicAudioProfile(3.0, 5, false, false);
         var inducedProfile = helpers.getSeismicAudioProfile(3.0, 5, false, true);
@@ -1260,10 +1301,70 @@
         assert(/670 tonnes/.test(energy.options.find(function (o) { return o.key === "x1"; }).label), "M5.1 is about 670 tonnes of TNT");
     });
 
+    var testPlayer = { id: 7, tag: "Tester", token: "e".repeat(48) };
+
+    test("Quake Quest without an Emberkite tag: popups are just the facts, and the Journal offers the sign-in", function () {
+        var savedGeojson = currentGeojson;
+        Q.setAccountForTests(null);
+        try {
+            currentGeojson = { type: "FeatureCollection", features: [{
+                type: "Feature", id: "qq-test-0",
+                geometry: { type: "Point", coordinates: [-178.2, -18, 560] },
+                properties: { eventId: "qq-test-0", place: "Fiji region", mag: 5.5, depth: 560, time: 0 }
+            }] };
+            var popup = helpers.buildPopupContent(currentGeojson.features[0].properties);
+            assert(!popup.querySelector(".quest-box"), "no quiz gate while signed out");
+            assert(popup.querySelectorAll(".popup-fact").length > 0, "the facts show straight away");
+            assert(!Q.signedIn() && Q.token() === null, "no tag, no token");
+
+            Q.openJournal();
+            var journal = document.getElementById("quest-journal");
+            assert(/Quake Quest needs an Emberkite tag/.test(journal.textContent), "one short line: Quake Quest needs a tag");
+            var labels = Array.prototype.map.call(journal.querySelectorAll(".quest-account button"), function (b) { return b.textContent; });
+            assert(labels.indexOf("Claim an Emberkite tag") !== -1 && labels.indexOf("Sign in") !== -1, "claim or sign in (" + labels.join(", ") + ")");
+            assert(!journal.querySelector(".quest-tab") && !journal.querySelector(".quest-rankbar"), "nothing else until signed in");
+
+            Q.setAccountForTests(testPlayer);
+            Q.openJournal("missions");
+            assert(journal.querySelector(".quest-tab") && journal.querySelector(".quest-rankbar"), "signed in: the whole Journal");
+            assert(/Playing as Tester/.test(journal.textContent), "and who you're playing as");
+            journal.hidden = true;
+        } finally {
+            currentGeojson = savedGeojson;
+            Q.setAccountForTests(null);
+        }
+    });
+
+    test("Emberkite seen ping: once per UTC day per device, only when signed in, silent on failure", function () {
+        var sent = [];
+        var send = function (url, options) { sent.push({ url: url, options: options }); return Promise.reject(new Error("404 until Airship Dash deploys")); };
+        var store = fakeStore({});
+        Q.setAccountForTests(null);
+        try {
+            assertEqual(Q.pingSeen({ store: store, fetch: send }), false, "signed out: no ping");
+            Q.setAccountForTests(testPlayer);
+            var day = Date.UTC(2026, 10, 11, 23, 30);
+            assertEqual(Q.pingSeen({ store: store, fetch: send, now: day }), true, "the first time today: ping");
+            assertEqual(sent.length, 1, "one request");
+            assert(/\/seen$/.test(sent[0].url), "to the identity API's /seen (" + sent[0].url + ")");
+            assertEqual(sent[0].options.method, "POST", "a POST");
+            var body = JSON.parse(sent[0].options.body);
+            assertEqual(body.token, testPlayer.token, "with the device token");
+            assertEqual(body.game, "quakes", "for this game");
+            assertEqual(store.data["emberkite.seen.quakes"], "2026-11-11", "the UTC day is remembered");
+            assertEqual(Q.pingSeen({ store: store, fetch: send, now: day + 20 * 60 * 1000 }), false, "later the same UTC day: no second ping");
+            assertEqual(Q.pingSeen({ store: store, fetch: send, now: day + 60 * 60 * 1000 }), true, "the next UTC day: ping again");
+            assertEqual(Q.pingSeen({ store: store, fetch: function () { throw new Error("offline"); }, now: day + 2 * 86400000 }), true, "a throwing fetch is silent");
+        } finally {
+            Q.setAccountForTests(null);
+        }
+    });
+
     test("Quake Quest: popup asks first, then reveals the facts and scores the answer", function () {
         var savedGeojson = currentGeojson;
         var savedState = JSON.stringify(Q.getState());
         Q.resetForTests();
+        Q.setAccountForTests(testPlayer);
         try {
             currentGeojson = { type: "FeatureCollection", features: [{
                 type: "Feature", id: "qq-test-1",

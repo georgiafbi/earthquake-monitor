@@ -4,6 +4,10 @@
 // The browser sends only an event id plus fixed keywords; the Worker fetches the
 // facts from USGS itself, so neither endpoint is a general-purpose Claude proxy,
 // and the API key never leaves Cloudflare.
+// Both are for players with an Emberkite tag: the device token travels in the
+// X-Emberkite-Token header (never the URL) and is checked against the shared
+// player database. The token is never part of a cache key, so each answer is
+// still made once and shared by every player.
 
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -17,19 +21,20 @@ import {
     settleTutorAnswer,
     toParagraphs
 } from "./prompt.js";
-import { handleQuestApi } from "./quest-api.js";
+import { handleQuestApi, playerFor } from "./quest-api.js";
 
 const MODEL = "claude-opus-5-5";
 const PROMPT_VERSION = "v2";       // bump to invalidate every cached explanation
 const TUTOR_PROMPT_VERSION = "t1"; // bump to invalidate every cached tutor answer
 const CACHE_SECONDS = 7 * 24 * 60 * 60;
 const USGS_DETAIL = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&eventid=";
+export const TOKEN_HEADER = "X-Emberkite-Token";
 
 function corsHeaders(origin) {
     return {
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type, " + TOKEN_HEADER,
         "Access-Control-Max-Age": "86400",
         "Vary": "Origin"
     };
@@ -88,6 +93,32 @@ async function askClaude(env, system, userMessage) {
         truncated: message.stop_reason === "max_tokens",
         usage: message.usage
     };
+}
+
+// Explain and the tutor need an Emberkite tag: a valid device token in the
+// header, belonging to a player who has claimed a tag. Returns the refusal, or
+// null to go on.
+export async function requireTag(request, env, origin) {
+    if (!env.DB) {
+        return json({ error: "Emberkite tags aren't set up here." }, 503, origin);
+    }
+    const token = (request.headers.get(TOKEN_HEADER) || "").trim();
+    const player = token ? await playerFor(env.DB, token) : null;
+    if (!player || !player.tag) {
+        return json({ error: "Sign in with your Emberkite tag to ask Claude." }, 401, origin, { "Cache-Control": "no-store" });
+    }
+    return null;
+}
+
+// Edge-cache keys come from the question alone (never the request, its
+// headers or the player's token), so one answer serves every player.
+export function explainCacheUrl(eventId, updated) {
+    return "https://explainer.cache/" + PROMPT_VERSION + "/" + eventId + "?u=" + updated;
+}
+
+export function tutorCacheUrl(eventId, req, updated) {
+    return "https://tutor.cache/" + TUTOR_PROMPT_VERSION + "/" + eventId + "/" + req.q + "/"
+        + encodeURIComponent(req.guess) + "/" + encodeURIComponent(req.answer) + "/" + req.mode + "?u=" + updated;
 }
 
 // Shared by both endpoints: edge cache first (free for everyone), then the
@@ -167,7 +198,7 @@ async function handleExplain(request, env, ctx, origin) {
     // One explanation per event per USGS revision, shared by every visitor.
     return cachedClaudeAnswer({
         request, env, ctx, origin,
-        cacheUrl: "https://explainer.cache/" + PROMPT_VERSION + "/" + ev.eventId + "?u=" + ev.updated,
+        cacheUrl: explainCacheUrl(ev.eventId, ev.updated),
         system: SYSTEM_PROMPT,
         userMessage: buildQuakeFacts(ev.feature),
         body: { id: ev.eventId, title: ev.feature.properties && ev.feature.properties.title },
@@ -189,8 +220,7 @@ async function handleTutor(request, env, ctx, origin) {
     }
     return cachedClaudeAnswer({
         request, env, ctx, origin,
-        cacheUrl: "https://tutor.cache/" + TUTOR_PROMPT_VERSION + "/" + ev.eventId + "/" + req.q + "/"
-            + encodeURIComponent(req.guess) + "/" + encodeURIComponent(req.answer) + "/" + req.mode + "?u=" + ev.updated,
+        cacheUrl: tutorCacheUrl(ev.eventId, req, ev.updated),
         system: TUTOR_SYSTEM_PROMPT,
         userMessage: buildTutorMessage(ev.feature, req),
         body: { id: ev.eventId, q: req.q, answer: req.answer },
@@ -243,6 +273,8 @@ export default {
             return json({ error: "Use GET." }, 405, origin);
         }
         try {
+            const refused = await requireTag(request, env, origin);
+            if (refused) return refused;
             return await handler(request, env, ctx, origin);
         } catch (error) {
             console.error("Worker failure", url.pathname, error && error.stack || error);

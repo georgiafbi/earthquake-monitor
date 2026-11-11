@@ -7,9 +7,19 @@ One Cloudflare Worker serves the whole app:
 - **`/api/explain?id=<USGS event id>`**: Claude (`claude-opus-5-5`, low
   effort) explains one quake in three plain-English paragraphs. It powers the
   **✨ Explain this quake** button in the map popup.
+- **`/api/tutor?id=…&q=&guess=&answer=&mode=`**: the Quake Quest tutor for a
+  wrong guess.
 - **`/api/quest/load|save|log|board`** (POST): Quake Quest gamer tags.
 
 The Anthropic API key is a Worker secret and never reaches the browser.
+
+**Explain and the tutor need an Emberkite tag.** The browser sends the
+device token in the `X-Emberkite-Token` header (never in the URL); the Worker
+checks it against the shared player database (`playerFor` in
+`src/quest-api.js`) and answers `401` when it is missing, unknown, or belongs
+to a player without a tag. The token is not part of any cache key, so each
+answer is still generated once and shared by every player. The map itself
+needs no tag.
 
 ## Quake Quest gamer tags
 
@@ -60,7 +70,7 @@ Roughly 1-2 US cents per new explanation. Use a dedicated API key
 
 ```sh
 npm install
-npm test                                   # unit tests for the prompt and caller helpers
+npm test                                   # unit tests: prompt, caller, tag gate and quest helpers
 CLOUDFLARE_INCLUDE_PROCESS_ENV=true npm run dev   # site + API at http://localhost:8787, uses $ANTHROPIC_API_KEY
 npx wrangler login                         # once
 npm run deploy                             # manual; normally not needed (see Deploys)

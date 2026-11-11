@@ -1202,6 +1202,7 @@ function buildPopupContent(props) {
         var explainSection = document.createElement("div");
         explainSection.className = "quake-explain";
         explainSection.setAttribute("aria-live", "polite");
+        explainSection.setAttribute("data-event-id", String(props.eventId));
         renderExplainSection(explainSection, String(props.eventId));
         content.appendChild(explainSection);
     }
@@ -1357,14 +1358,40 @@ function getExplainApiUrl() {
     return typeof EXPLAIN_API_URL === "string" && EXPLAIN_API_URL ? EXPLAIN_API_URL : null;
 }
 
+// Explain needs an Emberkite tag (the account lives in quest.js). The token goes
+// in a header, never the URL; the Worker's shared cache doesn't depend on it.
+function getEmberkiteToken() {
+    var quest = window.quakeQuest;
+    return quest && typeof quest.token === "function" ? quest.token() : null;
+}
+
+var pendingExplainId = null; // tapped Explain while signed out: explain it after sign-in
+
 function requestQuakeExplanation(eventId) {
     var existing = quakeExplanations.get(eventId);
-    if (existing && existing.state !== "error") {
+    if (existing && existing.state !== "error" && existing.state !== "needsTag") {
         return existing.promise;
     }
+    var token = getEmberkiteToken();
+    if (!token) {
+        var signedOut = { state: "needsTag" };
+        signedOut.promise = Promise.resolve(signedOut);
+        quakeExplanations.set(eventId, signedOut);
+        return signedOut.promise;
+    }
+    var headers = {};
+    headers[window.quakeQuest.TOKEN_HEADER || "X-Emberkite-Token"] = token;
     var entry = { state: "loading" };
-    entry.promise = fetch(getExplainApiUrl() + "?id=" + encodeURIComponent(eventId))
+    entry.promise = fetch(getExplainApiUrl() + "?id=" + encodeURIComponent(eventId), { headers: headers })
         .then(function (response) {
+            if (response.status === 401) {
+                // the tag's sign-in on this device is gone: ask again
+                entry.state = "needsTag";
+                if (window.quakeQuest && typeof window.quakeQuest.tokenRejected === "function") {
+                    window.quakeQuest.tokenRejected();
+                }
+                return null;
+            }
             return response.json().catch(function () { return {}; }).then(function (body) {
                 if (!response.ok || !Array.isArray(body.paragraphs)) {
                     throw new Error(body.error || "The explainer is unavailable right now.");
@@ -1373,6 +1400,9 @@ function requestQuakeExplanation(eventId) {
             });
         })
         .then(function (body) {
+            if (!body) {
+                return entry; // refused for want of a tag (entry.state is "needsTag")
+            }
             entry.state = "done";
             entry.paragraphs = body.paragraphs;
             return entry;
@@ -1431,6 +1461,27 @@ function renderExplainSection(section, eventId) {
         return;
     }
 
+    if (entry && entry.state === "needsTag") {
+        // signed out (or the device's sign-in expired): offer the Quake Quest sign-in
+        var needsTag = document.createElement("p");
+        needsTag.className = "quake-explain-status quake-explain-needs-tag";
+        needsTag.textContent = "✨ Explain needs an Emberkite tag, your gamer tag for every Emberkite game.";
+        section.appendChild(needsTag);
+        var quest = window.quakeQuest;
+        if (quest && typeof quest.openSignIn === "function") {
+            var signIn = document.createElement("button");
+            signIn.type = "button";
+            signIn.className = "quake-explain-btn";
+            signIn.textContent = "Sign in or claim a tag";
+            signIn.addEventListener("click", function () {
+                pendingExplainId = eventId;
+                quest.openSignIn();
+            });
+            section.appendChild(signIn);
+        }
+        return;
+    }
+
     if (entry && entry.state === "error") {
         var errorText = document.createElement("p");
         errorText.className = "quake-explain-status quake-explain-error";
@@ -1447,6 +1498,28 @@ function renderExplainSection(section, eventId) {
     });
     section.appendChild(button);
 }
+
+// Signed in (quest.js announces it): open Explain sections drop the sign-in
+// offer, and the quake whose Explain was tapped gets its explanation.
+function handleEmberkiteAccountChange() {
+    if (!getEmberkiteToken()) {
+        return;
+    }
+    quakeExplanations.forEach(function (entry, eventId) {
+        if (entry.state === "needsTag") {
+            quakeExplanations.delete(eventId);
+        }
+    });
+    var pending = pendingExplainId;
+    pendingExplainId = null;
+    if (pending && getExplainApiUrl()) {
+        requestQuakeExplanation(pending);
+    }
+    document.querySelectorAll(".quake-explain[data-event-id]").forEach(function (section) {
+        renderExplainSection(section, section.getAttribute("data-event-id"));
+    });
+}
+window.addEventListener("emberkite:account", handleEmberkiteAccountChange);
 
 function setActiveQuakePopup(popup) {
     var previousPopup = activeQuakePopup;
@@ -6217,6 +6290,7 @@ window.earthquakeApp.test = {
     plateClassColorExpression: plateClassColorExpression,
     describePlateRate: describePlateRate,
     quakeExplanations: quakeExplanations,
+    requestQuakeExplanation: requestQuakeExplanation,
     buildRangeUrl: buildRangeUrl,
     createChampionSelectionRingImage: createChampionSelectionRingImage,
     createEpicenterImage: createEpicenterImage,

@@ -1,7 +1,9 @@
 // Quake Quest: the Earthquake Monitor's geology game.
 // Predict-then-reveal questions in every quake popup, a collection (field guide),
 // badges, daily missions from the live feed, and ranks that put the airship fleet
-// under your command. Progress is kept in this browser (localStorage).
+// under your command. Playing needs an Emberkite tag (signed out, popups are plain
+// and the Journal offers the sign-in); progress is kept in this browser
+// (localStorage) and saved to the tag.
 // Science helpers are pure functions (exported for tests on window.quakeQuest.science).
 (function () {
     "use strict";
@@ -455,6 +457,33 @@
     function lsWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ } }
     var account = lsRead(ACCOUNT_KEY, null); // { id, tag, hasPin, token }
     function signedIn() { return Boolean(account && account.tag && account.token); }
+    // Quake Quest (and Claude's Explain and tutor) need a signed-in Emberkite tag
+    function playable() { return accountsAvailable && signedIn(); }
+    var TOKEN_HEADER = "X-Emberkite-Token";
+    function tokenHeaders() { var h = {}; if (signedIn()) h[TOKEN_HEADER] = account.token; return h; }
+
+    // ---- "seen" ping: once per UTC day per device, so Emberkite knows who plays what.
+    // Fire-and-forget; any failure (offline, the route not live yet) is silent.
+    var SEEN_KEY = "emberkite.seen.quakes";
+    function pingSeen(opts) {
+        opts = opts || {};
+        var store = opts.store || (function () { try { return localStorage; } catch (e) { return null; } }());
+        var send = opts.fetch || (typeof fetch === "function" ? fetch : null);
+        if (!playable() || !store || !send) return false;
+        var day = (opts.now ? new Date(opts.now) : new Date()).toISOString().slice(0, 10);
+        try { if (store.getItem(SEEN_KEY) === day) return false; store.setItem(SEEN_KEY, day); } catch (e) { return false; }
+        try {
+            Promise.resolve(send(ID_API + "/seen", {
+                method: "POST", keepalive: true,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token: account.token, game: "quakes" })
+            })).catch(function () { /* silent */ });
+        } catch (e) { /* silent */ }
+        return true;
+    }
+    function announceAccount() {
+        try { window.dispatchEvent(new CustomEvent("emberkite:account", { detail: { signedIn: signedIn() } })); } catch (e) { /* ignore */ }
+    }
 
     function post(url, body) {
         return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -551,6 +580,14 @@
         lsWrite(ACCOUNT_KEY, account);
         backfillLog();
         cloudStatus = "Syncing…";
+        if (needsStarter() || picksAvailable() > 0) journalTab = "fleet"; // as when the Journal opens
+        // the Journal, open now, shows the way (kept on the device only: a cloud save
+        // before the merge below could overwrite the tag's progress)
+        state.introSeen = true; state.fleetIntroSeen = true;
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+        renderChip(); renderScanButton(); renderJournal();
+        pingSeen();
+        announceAccount();
         return cloudSync().then(function () {
             toast("☁️", (how === "claim" ? "Emberkite tag " + account.tag + " is yours" : "Signed in as " + account.tag) + ". Your Quake Quest progress is saved to the cloud.");
             renderJournal();
@@ -560,7 +597,10 @@
         account = null;
         try { localStorage.removeItem(ACCOUNT_KEY); } catch (e) { /* ignore */ }
         cloudStatus = expired ? "This device was signed out. Sign in again to keep saving to the cloud." : "";
-        renderJournal();
+        if (scan) endScan();
+        renderChip(); renderScanButton(); renderJournal();
+        refreshPopup(); // back to the plain facts
+        announceAccount();
     }
 
     // ---- the leaderboard
@@ -602,9 +642,10 @@
     }
 
     // ---- the popup gate: a question first, the facts after
-    // returns "question" (facts stay hidden), "answered" or "off"
+    // returns "question" (facts stay hidden), "answered" or "off" (also when signed out:
+    // without an Emberkite tag the popup is just the facts)
     function renderPopupGate(content, props) {
-        if (!state.on || !props || !props.eventId) return "off";
+        if (!playable() || !state.on || !props || !props.eventId) return "off";
         var feature = findFeature(props.eventId);
         var c = feature && classifyQuake(feature);
         if (!c) return "off";
@@ -685,7 +726,8 @@
                 save();
                 render();
                 var qs = "?id=" + encodeURIComponent(c.id) + "&q=" + rec.k + "&guess=" + encodeURIComponent(rec.g) + "&answer=" + encodeURIComponent(rec.a) + "&mode=" + state.mode;
-                fetch(url + qs).then(function (r) {
+                fetch(url + qs, { headers: tokenHeaders() }).then(function (r) {
+                    if (r.status === 401) { tutorCache.delete(key); signOut(true); throw new Error("Sign in with your Emberkite tag to ask the tutor."); }
                     return r.json().catch(function () { return {}; }).then(function (body) {
                         if (!r.ok || !Array.isArray(body.paragraphs)) throw new Error(body.error || "The tutor is unavailable right now.");
                         tutorCache.set(key, { state: "done", paragraphs: body.paragraphs });
@@ -786,7 +828,7 @@
     function renderScanButton() {
         var btn = document.getElementById("quest-scan-btn");
         if (!btn) return;
-        btn.hidden = !state.on;
+        btn.hidden = !state.on || !playable();
         var dot = btn.querySelector(".quest-scan-dot");
         dot.style.background = needsStarter() ? "#94a3b8" : shipColor(state.ship);
         btn.setAttribute("aria-label", needsStarter() ? "Choose your first airship to start scanning for quakes"
@@ -838,6 +880,7 @@
         panel.appendChild(row);
     }
     function mountScanButton() {
+        if (!accountsAvailable) return; // no Emberkite tags here, so no Quake Quest
         var host = document.getElementById("map-id");
         if (!host || document.getElementById("quest-scan-btn")) return;
         var btn = el("button", "quest-scan-btn");
@@ -854,14 +897,24 @@
     function renderChip() {
         var chip = document.getElementById("quest-chip");
         if (!chip) return;
+        if (!playable()) {
+            // signed out: the chip opens the Journal's sign-in
+            chip.querySelector(".quest-chip-rank").textContent = "Quake Quest";
+            chip.querySelector(".quest-chip-xp").textContent = "Sign in";
+            chip.setAttribute("aria-label", "Quake Quest: sign in with your Emberkite tag");
+            chip.classList.remove("has-pick");
+            return;
+        }
         var r = rankIndex(state.xp);
         chip.querySelector(".quest-chip-rank").textContent = D.RANKS[r].title;
         chip.querySelector(".quest-chip-xp").textContent = state.xp + " XP";
+        chip.setAttribute("aria-label", "Open your Field Journal: missions, field guide, badges and fleet");
         // a dot when there's a ship to choose (the starter, or a promotion pick)
         chip.classList.toggle("has-pick", needsStarter() || picksAvailable() > 0);
     }
 
     function mountChip() {
+        if (!accountsAvailable) return; // no Emberkite tags here, so no Quake Quest
         if (document.getElementById("quest-chip")) return;
         var help = document.getElementById("open-guide-modal");
         if (!help) return;
@@ -897,7 +950,7 @@
         lastFocus = document.activeElement;
         ov.hidden = false;
         renderJournal();
-        var first = ov.querySelector(".quest-tab.is-active");
+        var first = ov.querySelector(".quest-tab.is-active") || ov.querySelector(".quest-account button");
         if (first) first.focus();
     }
     function closeJournal() {
@@ -925,6 +978,13 @@
         close.addEventListener("click", closeJournal);
         head.appendChild(close);
         dlg.appendChild(head);
+
+        // signed out: only the sign-in (Quake Quest needs an Emberkite tag)
+        if (!playable()) {
+            if (accountsAvailable) dlg.appendChild(renderAccount());
+            ov.appendChild(dlg);
+            return;
+        }
 
         // rank bar
         var next = D.RANKS[r + 1];
@@ -1002,8 +1062,8 @@
             return box;
         }
         if (accountView === "idle") {
-            box.appendChild(el("p", "quest-account-title", "Playing on this device only"));
-            box.appendChild(el("p", "quest-note", "Claim an Emberkite tag (your gamer tag for every Emberkite game) to save your progress to the cloud, play on any device and join the leaderboard. Already have one from Bhalo's Airship Dash? Sign in with it."));
+            box.appendChild(el("p", "quest-account-title", "Quake Quest needs an Emberkite tag"));
+            box.appendChild(el("p", "quest-note", "One gamer tag for every Emberkite game. Already have one? Sign in with it."));
             var a = el("div", "quest-account-actions");
             a.appendChild(button("Claim an Emberkite tag", "quest-go", function () { accountView = "claim"; accountMsg = ""; renderJournal(); }));
             a.appendChild(button("Sign in", "quest-go quest-go-quiet", function () { accountView = "signin"; accountMsg = ""; renderJournal(); }));
@@ -1271,7 +1331,9 @@
         mountChip();
         mountScanButton();
         if (signedIn()) cloudSync();                    // progress from your other devices
+        pingSeen();
         window.addEventListener("online", function () { flushLog(); scheduleCloudSave(); });
+        if (!playable()) return;                        // signed out: the chip offers the sign-in, nothing more
         if (!state.introSeen) {
             state.introSeen = true;
             state.fleetIntroSeen = true;
@@ -1290,8 +1352,17 @@
     window.quakeQuest = {
         renderPopupGate: renderPopupGate,
         openJournal: openJournal,
+        // the Emberkite tag, for the map's ✨ Explain (logic.js)
+        TOKEN_HEADER: TOKEN_HEADER,
+        signedIn: playable,
+        token: function () { return playable() ? account.token : null; },
+        openSignIn: function () { if (accountsAvailable) { accountView = "idle"; accountMsg = ""; openJournal(); } },
+        tokenRejected: function () { if (signedIn()) signOut(true); },
+        pingSeen: pingSeen,
         getState: function () { return state; },
         resetForTests: function () { state = defaultState(); classCache.clear(); },
+        // tests sign a fake player in or out without touching storage or the network
+        setAccountForTests: function (a) { account = a; },
         science: {
             depthClass: depthClass, magnitudeClass: magnitudeClass, tntTonnes: tntTonnes, formatTnt: formatTnt,
             segmentDistanceKm: segmentDistanceKm, buildBoundaryIndex: buildBoundaryIndex, classifyBoundary: classifyBoundary,

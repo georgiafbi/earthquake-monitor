@@ -13,13 +13,20 @@
     var APP_TODAY = [
         "A 3D globe of every earthquake USGS reports, live: size shows magnitude, colour shows depth. Pick 1 hour to 30 days, or an older range.",
         "Search by place, filter by magnitude or by origin (natural, or human-made such as quarry blasts), play a timelapse, and download the list as CSV or GeoJSON.",
-        "Tap a quake for its details, alert level and shaking, then ✨ Explain this quake for a plain-English account from Claude.",
+        "Tap a quake for its details, alert level and shaking. With an Emberkite tag, ✨ Explain this quake gives a plain-English account from Claude.",
         "Layers: five map styles, tectonic plates, an energy heatmap, and a fleet of airships that ping the quakes they pass.",
-        "Quake Quest (🧭): predict each quake before you peek, climb the ranks, earn airships, and keep your progress on an Emberkite tag."
+        "Quake Quest (🧭), played with your Emberkite tag: predict each quake before you peek, climb the ranks and earn airships."
     ];
 
     /** Newest first. */
     var CHANGELOG = [
+        {
+            v: 11, date: "11 Nov 2026", title: "Play with your Emberkite tag", items: [
+                "Quake Quest and ✨ Explain this quake now use your Emberkite tag: one tag for every Emberkite game. Sign in or claim one from 🧭 at the top.",
+                "The map, the quake list, the filters and the layers stay open to everyone.",
+                "Progress you made on this device comes along when you sign in."
+            ]
+        },
         {
             v: 10, date: "10 Nov 2026", title: "Layers fit on phones", items: [
                 "The Layers menu stays inside the map on phones now, and scrolls when the options don't all fit.",
