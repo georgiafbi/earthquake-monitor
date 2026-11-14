@@ -103,7 +103,7 @@
   <footer>Quake Quest is part of the Earthquake Monitor by Emberkite Games. Facts follow USGS and IRIS teaching material.</footer>
 </main>
 
-<script src="Leaflet-Step-1/static/js/logic.js?v=20261103_guide"></script>
+<script src="Leaflet-Step-1/static/js/logic.js?v=20261111_tags"></script>
 <script src="Leaflet-Step-1/static/js/quest-data.js?v=20261114_crew"></script>
 <script>
 (function () {
@@ -176,7 +176,7 @@
     var sci = mode === "scientist";
     var qs = [
       ["🪨", "How deep?", sci ? "Estimate the focal depth class of this event." : "How deep underground did this quake start?",
-        "Asked about every quake. Answers: " + Object.keys(D.DEPTH).map(function (k) { return D.DEPTH[k].label; }).join(", ") + ". Checked by the server against USGS."],
+        "Can be asked about any quake; each quake asks one question. Answers: " + Object.keys(D.DEPTH).map(function (k) { return D.DEPTH[k].label; }).join(", ") + ". The leaderboard log is re-checked by the server against USGS."],
       ["🧭", "What kind of place?", sci ? "Which tectonic setting produced this event?" : "What kind of place made this quake?",
         "Only when the plate map gives a clear answer, and never for human-made quakes. Answers: " + Object.keys(D.KINDS).map(function (k) { return D.KINDS[k].label; }).join(", ") + "."],
       ["⚡", "How much energy?", sci ? "This M6.0 event radiated roughly how much energy?" : "This quake was magnitude 6.0. About how much energy did it release?",
