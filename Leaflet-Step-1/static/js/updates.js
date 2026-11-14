@@ -21,6 +21,15 @@
     /** Newest first. */
     var CHANGELOG = [
         {
+            v: 12, date: "14 Nov 2026", title: "Quake Quest: fairer questions", items: [
+                "Energy questions: the right answer can now be the smallest choice, the largest, or in between.",
+                "Depth answers no longer carry coloured circles that disagreed with the map's depth colours.",
+                "Quakes with an orange or red PAGER alert are logged quietly, with no cheering.",
+                "Airship deeds now take a few days of play. Every airship you already own stays yours.",
+                "One answer shows at most three messages, and daily missions are only picked if you can still do them."
+            ]
+        },
+        {
             v: 11, date: "11 Nov 2026", title: "Play with your Emberkite tag", items: [
                 "Quake Quest and ✨ Explain this quake now use your Emberkite tag: one tag for every Emberkite game. Sign in or claim one from 🧭 at the top.",
                 "The map, the quake list, the filters and the layers stay open to everyone.",

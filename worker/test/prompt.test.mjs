@@ -109,6 +109,9 @@ test("tutor accepts only known keywords", () => {
     assert.equal(p("q=poem&guess=a&answer=b"), null);
     assert.equal(p("q=boundary&guess=transform&answer=divergent&mode=pirate"), null);
     assert.ok(p("q=energy&guess=x32&answer=x1&mode=scientist"));
+    assert.ok(p("q=energy&guess=x1/32000&answer=x1&mode=cadet"), "the smallest rung of the energy ladders");
+    assert.ok(p("q=energy&guess=x32000&answer=x1&mode=cadet"), "the largest rung");
+    assert.equal(p("q=energy&guess=x2&answer=x1&mode=cadet"), null);
 });
 
 test("tutor trusts USGS, not the browser, for depth and energy", () => {
@@ -128,4 +131,6 @@ test("tutor message carries the facts, the guess and the answer", () => {
     assert.match(m, /Player's guess: shallow/);
     assert.match(m, /Correct answer: deep/);
     assert.match(buildTutorMessage(f, { q: "energy", guess: "x1000", answer: "x1", mode: "scientist" }), /1,000 times too big/);
+    assert.match(buildTutorMessage(f, { q: "energy", guess: "x1/32000", answer: "x1", mode: "cadet" }), /32,000 times too small/);
+    assert.match(buildTutorMessage(f, { q: "energy", guess: "x32000", answer: "x1", mode: "cadet" }), /32,000 times too big/);
 });

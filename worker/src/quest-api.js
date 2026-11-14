@@ -20,18 +20,21 @@ export const QUEST_SCHEMA = [
 export const SAVE_MAX_BYTES = 64000;
 export const LOG_PER_CALL = 25;
 export const LOG_KEEP = 5000;            // newest predictions kept per player
+// Energy keys say how far a choice is from the true energy; "x1" is always the truth. The game
+// offers four of the seven per quake (ENERGY_LADDERS in quest-data.js), so the truth is not
+// always the same rung. Keep in step with ENERGY_STEPS there and TUTOR_KEYS in prompt.js.
 const KINDS = {
     depth: ["shallow", "intermediate", "deep"],
     boundary: ["subduction", "collision", "divergent", "transform", "intraplate"],
-    energy: ["x1/32", "x1", "x32", "x1000"]
+    energy: ["x1/32000", "x1/1000", "x1/32", "x1", "x32", "x1000", "x32000"]
 };
 const EVENT_ID = /^[a-z0-9]{4,40}$/i;
 
 // Highest XP a player can plausibly have, given what the server has logged for them
-// (see XP in quest-data.js): 20 + 5 streak bonus per prediction, the 25 Field Guide
+// (see XP in quest-data.js): 20 + 5 streak bonus per prediction, the 26 Field Guide
 // categories (15 each) and 14 badges (25 each) once, and 3 missions (40 each) a day.
 export function xpCeiling(predictions, activeDays) {
-    return 25 * predictions + 25 * 15 + 14 * 25 + 120 * activeDays;
+    return 25 * predictions + 26 * 15 + 14 * 25 + 120 * activeDays;
 }
 
 export function depthClassOf(km) {

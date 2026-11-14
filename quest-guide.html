@@ -65,7 +65,7 @@
 
   <h2 id="fleet">The survey fleet</h2>
   <p class="dim">Every player starts by choosing one airship. Another joins at every promotion, and any ship can be earned
-    early by its deed. Each carries a survey instrument: <b>📡 Scan</b> on the map rings the quakes it finds and flies to each.</p>
+    early by its deed. Deeds take a few days of play. Each carries a survey instrument: <b>📡 Scan</b> on the map rings the quakes it finds and flies to each.</p>
   <div class="grid" id="ships"></div>
 
   <h2 id="kinds">Kinds of quake</h2>
@@ -104,7 +104,7 @@
 </main>
 
 <script src="Leaflet-Step-1/static/js/logic.js?v=20261103_guide"></script>
-<script src="Leaflet-Step-1/static/js/quest-data.js?v=20261103_guide"></script>
+<script src="Leaflet-Step-1/static/js/quest-data.js?v=20261114_crew"></script>
 <script>
 (function () {
   "use strict";
@@ -179,8 +179,8 @@
         "Asked about every quake. Answers: " + Object.keys(D.DEPTH).map(function (k) { return D.DEPTH[k].label; }).join(", ") + ". Checked by the server against USGS."],
       ["🧭", "What kind of place?", sci ? "Which tectonic setting produced this event?" : "What kind of place made this quake?",
         "Only when the plate map gives a clear answer, and never for human-made quakes. Answers: " + Object.keys(D.KINDS).map(function (k) { return D.KINDS[k].label; }).join(", ") + "."],
-      ["💥", "How much energy?", sci ? "This M6.0 event radiated roughly how much energy?" : "This quake was magnitude 6.0. About how much energy did it release?",
-        "For magnitude 1 and up. Four choices in tonnes of TNT, 32 times apart; the right one comes from the magnitude (see Energy below)."]
+      ["⚡", "How much energy?", sci ? "This M6.0 event radiated roughly how much energy?" : "This quake was magnitude 6.0. About how much energy did it release?",
+        "For magnitude 1 and up. Four choices as amounts of TNT, about 32 times apart. The right one can be the smallest, the largest or in between; it comes from the magnitude (see Energy below)."]
     ];
     qs.forEach(function (q) {
       var c = card(q[0], q[1], null, "q");

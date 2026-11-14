@@ -1254,7 +1254,7 @@
         assertEqual(QS.magnitudeClass(4.0), "light", "M4.0");
         assertEqual(QS.magnitudeClass(6.5), "strong", "M6.5");
         assertEqual(QS.magnitudeClass(9.1), "great", "M9.1");
-        assertEqual(QS.formatTnt(QS.tntTonnes(6.0)), "15,000 tonnes of TNT", "M6 energy (about one Hiroshima bomb)");
+        assertEqual(QS.formatTnt(QS.tntTonnes(6.0)), "15,000 tonnes of TNT", "M6 energy");
         // the Field Guide page (quest-guide.html) reads the same functions from QUEST_DATA
         assertEqual(QS.tntTonnes, window.QUEST_DATA.TNT.tonnes, "the game and the Field Guide share one energy formula");
         assertEqual(QS.formatTnt, window.QUEST_DATA.TNT.format, "and one way of wording it");
@@ -1298,6 +1298,18 @@
             .find(function (q) { return q.kind === "energy"; });
         assert(energy, "an energy question comes up");
         assertEqual(energy.options.length, 4, "four energy options, 32x apart");
+        // the true value is not always the same rung: every one of the four ladders comes up
+        var rungs = {};
+        for (var n = 0; n < 200; n++) {
+            var eq = QS.buildQuestion({ id: "rung" + n, depth: 10, depthClass: "shallow", mag: 0.5 + 9 * n / 200, boundary: { kind: null }, induced: false }, "cadet");
+            if (eq.kind !== "energy") continue;
+            var sizes = eq.options.map(function (o) { return window.QUEST_DATA.ENERGY_STEPS[o.key]; }).sort(function (a, b) { return a - b; });
+            rungs[sizes.indexOf(1)] = true;
+            assert(eq.options.some(function (o) { return o.key === "x1"; }), "the truth is always offered");
+        }
+        assertEqual(Object.keys(rungs).sort().join(","), "0,1,2,3", "the right energy is smallest, second, third and largest across quakes");
+        // a guess saved before the ladders (or from another ladder) still reads as an amount
+        assert(/tonnes of TNT/.test(QS.answerLabel(Object.assign({}, energy, { options: [] }), "x1000", { mag: 5.1 })), "old energy guesses keep their wording");
         assert(/670 tonnes/.test(energy.options.find(function (o) { return o.key === "x1"; }).label), "M5.1 is about 670 tonnes of TNT");
     });
 
@@ -1397,6 +1409,36 @@
         }
     });
 
+    test("Quake Quest: an orange or red PAGER alert gets one quiet line; other answers at most three messages", function () {
+        var feats = [
+            quake("pager-red", 37.0, 37.2, 10, 7.8, { pager: { level: "red" } }),
+            quake("pager-green", -178.2, -18, 560, 5.5, { pager: { level: "green" } })
+        ];
+        withQuest(feats, function (st) {
+            QS.chooseShip(0, "starter");
+            var red = QS.classifyQuake(feats[0]), green = QS.classifyQuake(feats[1]);
+            assert(QS.isHarmful(red) && !QS.isHarmful(green), "only orange and red alerts count as harmful");
+            var q = QS.buildQuestion(red, "cadet");
+            var r = QS.recordAnswer(red, q, q.answer);
+            var toasts = QS.answerToasts(r);
+            assertEqual(toasts.length, 1, "one message for a harmful quake");
+            assert(!/Right|XP|Badge|!/.test(toasts[0].text), "and it does not cheer: " + toasts[0].text);
+            assert(st.xp > 0 && st.answers["pager-red"].ok, "the answer and its XP are still recorded");
+            var q2 = QS.buildQuestion(green, "cadet");
+            var t2 = QS.answerToasts(QS.recordAnswer(green, q2, q2.answer));
+            assert(t2.length <= 3 && /^Right! \+\d+ XP/.test(t2[0].text), "an ordinary quake: the result first, three messages at most (" + t2.length + ")");
+        });
+    });
+
+    test("Quake Quest: a mission is only picked while a matching quake is still unanswered", function () {
+        var feats = [quake("deep-done", -178.2, -18, 560, 5.5)];
+        withQuest(feats, function (st) {
+            st.answers["deep-done"] = { k: "depth", g: "deep", a: "deep", ok: true, t: Date.now() };
+            var picked = QS.ensureDaily().missions;
+            assert(picked.indexOf("deep") === -1 && picked.indexOf("moderate") === -1, "no map mission whose only quake is already answered (" + picked.join(",") + ")");
+        });
+    });
+
     test("Quake Quest: ranks climb with XP and each rank brings an airship", function () {
         assertEqual(QS.rankIndex(0), 0, "Cadet at 0 XP");
         assertEqual(QS.rankIndex(59), 0, "still Cadet at 59");
@@ -1453,14 +1495,20 @@
 
     test("Quake Quest fleet: deeds earn airships early, but only after the starter", function () {
         withQuest([], function (st) {
-            st.stats.deepPredictions = 3;
+            st.stats.deepPredictions = 10;
             assertEqual(QS.awardShipsByDeed().length, 0, "no deed ships before choosing a starter");
             QS.chooseShip(4, "starter"); // choosing triggers the deed check: Deep Sounder (HMS Australis) joins
-            assert(QS.owns(2), "the Deep Sounder ship joined for predicting 3 deep quakes");
+            assert(QS.owns(2), "the Deep Sounder ship joined for predicting 10 deep quakes");
             assertEqual(st.picksUsed, 0, "a deed ship doesn't use a promotion pick");
-            st.stats.bigPredictions = 1;
+            st.stats.bigPredictions = 4;
+            assertEqual(QS.awardShipsByDeed().length, 0, "four M5+ predictions are not yet the Wave Watch deed");
+            st.stats.bigPredictions = 5;
             var ev = QS.awardShipsByDeed();
-            assert(QS.owns(6) && ev.length === 1 && /HMS Monsoon/.test(ev[0].text), "Wave Watch joins for an M5+ prediction");
+            assert(QS.owns(6) && ev.length === 1 && /HMS Monsoon/.test(ev[0].text), "Wave Watch joins for five M5+ predictions");
+            // a ship owned under an easier, older deed is never taken away
+            st.stats.deepPredictions = 3; st.stats.bigPredictions = 1;
+            QS.awardShipsByDeed();
+            assert(QS.owns(2) && QS.owns(6), "owned ships stay when a deed is no longer met");
         });
     });
 

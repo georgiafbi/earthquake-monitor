@@ -146,6 +146,8 @@
             induced: Boolean(p.origin && p.origin.isInduced),
             felt: Number(p.felt) || 0,
             pager: Boolean(p.pager),
+            // the PAGER level ("green", "yellow", "orange", "red") or null
+            alert: (p.pager && p.pager.level) || (typeof p.alert === "string" && p.alert.trim().toLowerCase()) || null,
             time: Number(p.time) || 0
         };
         if (c.induced) c.boundary.kind = "intraplate"; // blasts and induced quakes aren't plate-boundary events
@@ -162,6 +164,10 @@
         if (c.pager) keys.push("special:pager");
         return keys;
     }
+
+    // Orange and red PAGER alerts mean people have probably been hurt. The question and the
+    // lesson stay, but nothing about such a quake is celebrated (see answerToasts).
+    function isHarmful(c) { return Boolean(c) && (c.alert === "orange" || c.alert === "red"); }
 
     function hashString(s) {
         var h = 2166136261;
@@ -185,7 +191,7 @@
             return {
                 kind: "depth",
                 prompt: cadet ? "How deep underground did this quake start?" : "Estimate the focal depth class of this event.",
-                hint: cadet ? "Clue: the marker colour on the map shows depth, and the legend explains the colours." : "Consider the tectonic setting: slab events can be far below the surface.",
+                hint: cadet ? "Clue: the marker colour on the map shows depth, and the legend gives the depth for each colour." : "Consider the tectonic setting: slab events can be far below the surface.",
                 options: Object.keys(D.DEPTH).map(function (k) { return { key: k, label: D.DEPTH[k].icon + " " + D.DEPTH[k].label }; }),
                 answer: c.depthClass
             };
@@ -199,21 +205,25 @@
                 answer: c.boundary.kind
             };
         }
-        // energy: the magnitude scale is logarithmic (x32 per step)
-        var steps = [["x1/32", 1 / 32], ["x1", 1], ["x32", 32], ["x1000", 1000]];
-        var t = tntTonnes(c.mag);
-        var order = steps.slice().sort(function (p, q) { return hashString(c.id + p[0]) - hashString(c.id + q[0]); });
+        // energy: the magnitude scale is logarithmic (x32 per step). The quake's id picks one of
+        // four ladders, so the true value is not always the same rung, and shuffles the buttons.
+        // (the hash's high bits: its low bits already chose the kind of question)
+        var ladder = D.ENERGY_LADDERS[(hashString(c.id + "ladder") >>> 16) % D.ENERGY_LADDERS.length];
+        var order = ladder.slice().sort(function (p, q) { return hashString(c.id + p) - hashString(c.id + q); });
         return {
             kind: "energy",
             prompt: (cadet ? "This quake was magnitude " : "This M") + c.mag.toFixed(1) + (cadet ? ". About how much energy did it release?" : " event radiated roughly how much energy?"),
-            hint: cadet ? "Clue: a magnitude 6 releases about 15,000 tonnes of TNT (about one Hiroshima bomb), and each step down the scale is about 32 times less." : "log10 E = 1.5 M + 4.8 (J); one tonne of TNT = 4.184 GJ.",
-            options: order.map(function (s) { return { key: s[0], label: "About " + formatTnt(t * s[1]) }; }),
+            hint: cadet ? "Clue: a magnitude 6 releases about 15,000 tonnes of TNT (about what a big power station makes in a day), and each step up or down the scale is about 32 times more or less." : "log10 E = 1.5 M + 4.8 (J); one tonne of TNT = 4.184 GJ.",
+            options: order.map(function (k) { return { key: k, label: energyLabel(c.mag, k) }; }),
             answer: "x1"
         };
     }
+    function energyLabel(mag, key) { return "About " + formatTnt(tntTonnes(mag) * D.ENERGY_STEPS[key]); }
 
-    function answerLabel(q, key) {
+    // c is optional: with it, an energy guess saved under an earlier set of choices still reads as an amount
+    function answerLabel(q, key, c) {
         for (var i = 0; i < q.options.length; i++) if (q.options[i].key === key) return q.options[i].label;
+        if (c && q.kind === "energy" && D.ENERGY_STEPS[key]) return energyLabel(c.mag, key);
         return key;
     }
 
@@ -241,7 +251,7 @@
                 predictions: 0, right: 0, streak: 0, bestStreak: 0, tutorAsks: 0, missionDays: 0, scientistPredictions: 0,
                 // counters behind the ships' deeds
                 missionsDone: 0, deepPredictions: 0, oceanPredictions: 0, boundaryRight: 0, faultPredictions: 0,
-                bigPredictions: 0, freshPredictions: 0, scans: 0
+                bigPredictions: 0, freshPredictions: 0, oddPredictions: 0, scans: 0
             },
             daily: null
         };
@@ -293,7 +303,8 @@
         // (only skill missions then) and nothing has been done yet
         if (d && d.date === date && (d.dataReady || !list.length || d.predictedToday > 0)) return d;
         var seed = hashString("missions" + date);
-        var data = D.MISSIONS.filter(function (m) { return list.some(m.match); })
+        // only missions that can still be done: a matching quake you haven't answered yet
+        var data = D.MISSIONS.filter(function (m) { return list.some(function (c) { return m.match(c) && !state.answers[c.id]; }); })
             .sort(function (a, b) { return hashString(date + a.id) - hashString(date + b.id); });
         var picks = data.slice(0, 2).map(function (m) { return m.id; });
         var skills = D.SKILL_MISSIONS.slice();
@@ -321,7 +332,7 @@
         if (ok) {
             state.stats.right++; state.stats.streak++; daily.rightToday++; daily.streakToday++;
             state.stats.bestStreak = Math.max(state.stats.bestStreak, state.stats.streak);
-            if (state.stats.streak >= 3) { gained += D.XP.streakBonus; events.push({ icon: "🔥", text: state.stats.streak + " in a row! +" + D.XP.streakBonus + " XP" }); }
+            if (state.stats.streak >= 3) { gained += D.XP.streakBonus; events.push({ type: "streak", n: state.stats.streak, icon: "🔥", text: state.stats.streak + " in a row! +" + D.XP.streakBonus + " XP" }); }
         } else {
             state.stats.streak = 0; daily.streakToday = 0;
         }
@@ -334,6 +345,7 @@
         if (ok && q.kind === "boundary") state.stats.boundaryRight++;
         if (c.boundary.kind === "transform" || c.boundary.kind === "collision") state.stats.faultPredictions++;
         if (c.mag >= 5) state.stats.bigPredictions++;
+        if (c.boundary.kind === "intraplate" || c.induced) state.stats.oddPredictions++;
         if (c.time && Date.now() - c.time <= 3600 * 1000) state.stats.freshPredictions++;
 
         var logged = [];
@@ -345,7 +357,7 @@
             if (cat) logged.push(cat.label.replace(/\s*\(.*\)$/, ""));
         });
         if (logged.length) {
-            events.push({ icon: "📖", text: "Field Guide: " + logged.join(", ") + " (+" + logged.length * D.XP.newCategory + " XP)" });
+            events.push({ type: "guide", n: logged.length, icon: "📖", text: "Field Guide: " + logged.join(", ") + " (+" + logged.length * D.XP.newCategory + " XP)" });
         }
 
         daily.missions.forEach(function (id) {
@@ -356,13 +368,13 @@
                 daily.done[id] = true;
                 state.stats.missionsDone++;
                 gained += D.XP.mission;
-                events.push({ icon: m.icon, text: "Mission done: " + m.text + " +" + D.XP.mission + " XP" });
+                events.push({ type: "mission", icon: m.icon, text: "Mission done: " + m.text + " +" + D.XP.mission + " XP" });
             }
         });
         if (!daily.completed && daily.missions.every(function (id) { return daily.done[id]; })) {
             daily.completed = true;
             state.stats.missionDays++;
-            events.push({ icon: "🏁", text: "All of today's missions done!" });
+            events.push({ type: "alldone", icon: "🏁", text: "All of today's missions done!" });
         }
 
         state.xp += gained;
@@ -371,10 +383,46 @@
         var after = rankIndex(state.xp);
         if (after > before) {
             var canPick = picksAvailable() > 0;
-            events.push({ icon: "🎖️", text: "Promoted to " + D.RANKS[after].title + "!" + (canPick ? " Choose a new airship in your Field Journal." : "") });
+            events.push({ type: "rank", icon: "🎖️", text: "Promoted to " + D.RANKS[after].title + "!" + (canPick ? " Choose a new airship in your Field Journal." : "") });
         }
         save();
-        return { ok: ok, gained: gained, events: events, rankUp: after > before };
+        return { ok: ok, gained: gained, events: events, rankUp: after > before, quiet: isHarmful(c) };
+    }
+
+    // What to say after an answer: at most three toasts. The result; a promotion or a new
+    // airship (they need a choice or change what Scan does); and one line for everything else.
+    // A quake with an orange or red PAGER alert gets one plain line and no fanfare: the XP,
+    // Field Guide entries and badges are still recorded, and show in the Field Journal.
+    function answerToasts(r) {
+        if (r.quiet) return [{ icon: "📘", text: "Logged in your Field Journal." }];
+        var out = [{ icon: r.ok ? "✅" : "📘", text: (r.ok ? "Right! " : "Good try! ") + "+" + r.gained + " XP" + (r.events.length ? " in all" : "") }];
+        var rest = r.events.slice();
+        function take(type) {
+            for (var i = 0; i < rest.length; i++) if (rest[i].type === type) return rest.splice(i, 1)[0];
+            return null;
+        }
+        var lead = take("rank") || take("ship");
+        if (lead) out.push(lead);
+        if (rest.length === 1) out.push(rest[0]);
+        if (rest.length > 1) {
+            var n = { guide: 0, mission: 0, badge: 0, ship: 0 }, streak = 0, allDone = false;
+            rest.forEach(function (e) {
+                if (e.type === "guide") n.guide += e.n;
+                else if (e.type === "streak") streak = e.n;
+                else if (e.type === "alldone") allDone = true;
+                else if (n[e.type] !== undefined) n[e.type]++;
+            });
+            var parts = [];
+            if (streak) parts.push(streak + " in a row");
+            if (n.guide) parts.push(n.guide + (n.guide === 1 ? " new Field Guide entry" : " new Field Guide entries"));
+            if (allDone) parts.push("all of today's missions done");
+            else if (n.mission) parts.push(n.mission + (n.mission === 1 ? " mission done" : " missions done"));
+            if (n.badge) parts.push(n.badge + (n.badge === 1 ? " new badge" : " new badges"));
+            if (n.ship) parts.push(n.ship + (n.ship === 1 ? " new airship" : " new airships"));
+            var text = parts.join(", ");
+            out.push({ icon: "📖", text: text.charAt(0).toUpperCase() + text.slice(1) + ". It's all in your Field Journal." });
+        }
+        return out;
     }
 
     // ---- the fleet: a starter of your choice, one more per promotion, or earned early by deeds
@@ -404,7 +452,7 @@
         D.SHIPS.forEach(function (s, i) {
             if (owns(i) || !s.deedTest(state)) return;
             addShip(i, "deed");
-            events.push({ icon: "🛸", text: shipName(i) + " joins your fleet for your deed: " + s.deed.toLowerCase() + "! Its " + s.instrument + " finds " + s.finds + "." });
+            events.push({ type: "ship", icon: "🛸", text: shipName(i) + " joins your fleet for your deed: " + s.deed.toLowerCase() + "! Its " + s.instrument + " finds " + s.finds + "." });
         });
         return events;
     }
@@ -423,7 +471,7 @@
             if (state.badges[b.id] || !b.test(state)) return;
             state.badges[b.id] = Date.now();
             state.xp += D.XP.badge;
-            events.push({ icon: b.icon, text: "Badge: " + b.label + " +" + D.XP.badge + " XP" });
+            events.push({ type: "badge", icon: b.icon, text: "Badge: " + b.label + " +" + D.XP.badge + " XP" });
         });
         return events;
     }
@@ -663,8 +711,7 @@
                 b.type = "button";
                 b.addEventListener("click", function () {
                     var r = recordAnswer(c, q, o.key);
-                    toast(r.ok ? "✅" : "📘", (r.ok ? "Right! " : "Good try! ") + "+" + r.gained + " XP" + (r.events.length ? " in all" : ""));
-                    r.events.forEach(function (ev, i) { setTimeout(function () { toast(ev.icon, ev.text); }, 500 * (i + 1)); });
+                    answerToasts(r).forEach(function (ev, i) { setTimeout(function () { toast(ev.icon, ev.text); }, 700 * i); });
                     refreshPopup();
                 });
                 opts.appendChild(b);
@@ -684,9 +731,11 @@
         if (rec.skip) return "answered";
         // the question as it was asked (mode may have changed since: rebuild with the stored kind)
         var asked = q.kind === rec.k ? q : Object.assign({}, q, { kind: rec.k, answer: rec.a });
-        var correctLabel = q.kind === rec.k ? answerLabel(q, rec.a) : rec.a;
+        var correctLabel = q.kind === rec.k ? answerLabel(q, rec.a, c) : rec.a;
         box.classList.add(rec.ok ? "is-right" : "is-wrong");
-        box.appendChild(el("p", "quest-result", rec.ok ? "✅ You got it: " + correctLabel : "📘 It was " + correctLabel + (q.kind === rec.k ? " (you said " + answerLabel(q, rec.g).replace(/^About /, "about ") + ")" : "")));
+        // no tick or cheer on a quake with an orange or red PAGER alert
+        var rightText = isHarmful(c) ? "📘 You were right: " : "✅ You got it: ";
+        box.appendChild(el("p", "quest-result", rec.ok ? rightText + correctLabel : "📘 It was " + correctLabel + (q.kind === rec.k ? " (you said " + answerLabel(q, rec.g, c).replace(/^About /, "about ") + ")" : "")));
         box.appendChild(el("p", "quest-lesson", lessonFor(asked, c, state.mode)));
         if (!rec.ok) box.appendChild(tutorBlock(c, rec));
         content.appendChild(box);
@@ -1063,6 +1112,7 @@
         }
         if (accountView === "idle") {
             box.appendChild(el("p", "quest-account-title", "Quake Quest needs an Emberkite tag"));
+            box.appendChild(el("p", "quest-note", "Predict each quake before you peek, fill your Field Guide and earn airships."));
             box.appendChild(el("p", "quest-note", "One gamer tag for every Emberkite game. Already have one? Sign in with it."));
             var a = el("div", "quest-account-actions");
             a.appendChild(button("Claim an Emberkite tag", "quest-go", function () { accountView = "claim"; accountMsg = ""; renderJournal(); }));
@@ -1367,7 +1417,7 @@
             depthClass: depthClass, magnitudeClass: magnitudeClass, tntTonnes: tntTonnes, formatTnt: formatTnt,
             segmentDistanceKm: segmentDistanceKm, buildBoundaryIndex: buildBoundaryIndex, classifyBoundary: classifyBoundary,
             classifyQuake: classifyQuake, categoriesFor: categoriesFor, buildQuestion: buildQuestion, questionKinds: questionKinds,
-            recordAnswer: recordAnswer, rankIndex: rankIndex, ensureDaily: ensureDaily,
+            recordAnswer: recordAnswer, answerToasts: answerToasts, answerLabel: answerLabel, isHarmful: isHarmful, rankIndex: rankIndex, ensureDaily: ensureDaily,
             needsStarter: needsStarter, picksAvailable: picksAvailable, chooseShip: chooseShip, owns: owns, scanMatches: scanMatches, awardShipsByDeed: awardShipsByDeed,
             loadState: loadState, mergeStates: mergeStates
         }

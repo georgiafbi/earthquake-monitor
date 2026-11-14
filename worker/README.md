@@ -34,10 +34,12 @@ against the same D1 database (`bhalo-scores`, binding `DB`). Tables
   device merges local and cloud progress, keeping the best of each.
 - **Activity log**: one row per player per quake (`INSERT OR IGNORE`), sent
   in batches of 25 and queued in the browser while offline. Depth answers
-  are re-checked against USGS; energy answers are always correct; boundary
+  are re-checked against USGS; the true energy is always the key `x1` (the
+  game offers four of seven keys per quake, so it is not always the same
+  rung); boundary
   answers are kept but marked unchecked. The newest 5,000 per player stay.
 - **Leaderboard**: top 20 plus your own place. XP counts only up to
-  `25 × predictions + 375 + 350 + 120 × active days`, so an edited save
+  `25 × predictions + 390 + 350 + 120 × active days`, so an edited save
   can't top it. Tester tags are left out.
 - **Admin**: Airship Dash's admin page has a Quake Quest card (players, XP
   warnings, each player's log, reset).

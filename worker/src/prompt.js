@@ -132,7 +132,7 @@ export function toParagraphs(text) {
 export const TUTOR_KEYS = {
     depth: ["shallow", "intermediate", "deep"],
     boundary: ["subduction", "collision", "divergent", "transform", "intraplate"],
-    energy: ["x1/32", "x1", "x32", "x1000"]
+    energy: ["x1/32000", "x1/1000", "x1/32", "x1", "x32", "x1000", "x32000"]   // as ENERGY_STEPS in quest-data.js
 };
 export const TUTOR_MODES = ["cadet", "scientist"];
 
@@ -196,7 +196,10 @@ export function buildTutorMessage(feature, req) {
         question = "What kind of plate setting made this quake?";
         guessText = KIND_WORDS[req.guess]; answerText = KIND_WORDS[req.answer];
     } else {
-        const factor = { "x1/32": "32 times too small", "x1": "the right amount", "x32": "32 times too big", "x1000": "1,000 times too big" };
+        const factor = {
+            "x1/32000": "32,000 times too small", "x1/1000": "1,000 times too small", "x1/32": "32 times too small", "x1": "the right amount",
+            "x32": "32 times too big", "x1000": "1,000 times too big", "x32000": "32,000 times too big"
+        };
         question = "About how much energy did this quake release?";
         guessText = "an amount " + factor[req.guess] + " (" + req.guess + " of the real value)";
         answerText = "the real value, " + t;
