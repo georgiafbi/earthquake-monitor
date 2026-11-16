@@ -503,7 +503,25 @@
 
     function lsRead(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; } }
     function lsWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ } }
+    // One sign-in for every Emberkite game on this device: the games live at sister addresses
+    // (something.emberkitegames.com), which cannot read each other's storage but can share a cookie.
+    function sharedAccount() {
+        try {
+            var m = document.cookie.match(/(?:^|; )ek_player=([^;]+)/);
+            var a = m && JSON.parse(decodeURIComponent(m[1]));
+            return a && a.tag && a.token ? { id: a.id, tag: a.tag, hasPin: !!a.hasPin, token: a.token } : null;
+        } catch (e) { return null; }
+    }
+    function shareAccount(a) {
+        try {
+            var v = a && a.tag && a.token ? encodeURIComponent(JSON.stringify({ id: a.id, tag: a.tag, hasPin: !!a.hasPin, token: a.token })) : "";
+            var home = /(^|[.])emberkitegames[.]com$/.test(location.hostname);
+            document.cookie = "ek_player=" + v + "; " + (home ? "Domain=emberkitegames.com; Secure; " : "") + "Path=/; Max-Age=" + (v ? 34560000 : 0) + "; SameSite=Lax";
+        } catch (e) { /* cookies blocked: this game keeps its own sign-in */ }
+    }
     var account = lsRead(ACCOUNT_KEY, null); // { id, tag, hasPin, token }
+    if (account && account.tag && account.token) { if (!sharedAccount()) shareAccount(account); }
+    else { account = sharedAccount(); if (account) lsWrite(ACCOUNT_KEY, account); }
     function signedIn() { return Boolean(account && account.tag && account.token); }
     // Quake Quest (and Claude's Explain and tutor) need a signed-in Emberkite tag
     function playable() { return accountsAvailable && signedIn(); }
@@ -626,6 +644,7 @@
     function useAccount(data, how) {
         account = { id: data.id, tag: data.tag, hasPin: Boolean(data.hasPin), token: data.token };
         lsWrite(ACCOUNT_KEY, account);
+        shareAccount(account);
         backfillLog();
         cloudStatus = "Syncing…";
         if (needsStarter() || picksAvailable() > 0) journalTab = "fleet"; // as when the Journal opens
@@ -644,6 +663,7 @@
     function signOut(expired) {
         account = null;
         try { localStorage.removeItem(ACCOUNT_KEY); } catch (e) { /* ignore */ }
+        shareAccount(null);
         cloudStatus = expired ? "This device was signed out. Sign in again to keep saving to the cloud." : "";
         if (scan) endScan();
         renderChip(); renderScanButton(); renderJournal();
