@@ -1,9 +1,10 @@
 // Quake Quest: the Earthquake Monitor's geology game.
 // Predict-then-reveal questions in every quake popup, a collection (field guide),
 // badges, daily missions from the live feed, and ranks that put the airship fleet
-// under your command. Playing needs an Emberkite tag (signed out, popups are plain
-// and the Journal offers the sign-in); progress is kept in this browser
-// (localStorage) and saved to the tag.
+// under your command. Anyone can start as a guest: the game is kept in this browser
+// (localStorage) and nothing a guest does is sent to the server. A guest plays up to a
+// set rank with one airship (see "guest play"); an Emberkite tag (just a name) lifts
+// the limits, saves the game to the cloud and joins the leaderboard.
 // Science helpers are pure functions (exported for tests on window.quakeQuest.science).
 (function () {
     "use strict";
@@ -383,7 +384,9 @@
         var after = rankIndex(state.xp);
         if (after > before) {
             var canPick = picksAvailable() > 0;
-            events.push({ type: "rank", icon: "🎖️", text: "Promoted to " + D.RANKS[after].title + "!" + (canPick ? " Choose a new airship in your Field Journal." : "") });
+            var rankNote = canPick ? " Choose a new airship in your Field Journal."
+                : guestCapped() ? " That is as far as guests go. Claim a tag (just a name) in your Field Journal to keep going." : "";
+            events.push({ type: "rank", icon: "🎖️", text: "Promoted to " + D.RANKS[after].title + "!" + rankNote });
         }
         save();
         return { ok: ok, gained: gained, events: events, rankUp: after > before, quiet: isHarmful(c) };
@@ -430,13 +433,14 @@
     function owns(i) { return state.ships.indexOf(i) !== -1; }
     function needsStarter() { return state.ships.length === 0; }
     function picksAvailable() {
-        if (needsStarter()) return 0;
+        if (needsStarter() || isGuest()) return 0; // a guest's picks wait for their tag
         var unowned = fleetSize() - state.ships.length;
         return Math.max(0, Math.min(unowned, rankIndex(state.xp) - state.picksUsed));
     }
     // how: "starter", "pick" (a promotion) or "deed"; returns false if not allowed
     function addShip(i, how) {
         if (i < 0 || i >= fleetSize() || owns(i)) return false;
+        if (how !== "starter" && isGuest()) return false; // guests fly their first airship only
         if (how === "starter" && !needsStarter()) return false;
         if (how === "pick" && picksAvailable() < 1) return false;
         if (how === "deed" && (needsStarter() || !D.SHIPS[i].deedTest(state))) return false;
@@ -445,10 +449,11 @@
         if (state.ship === null) state.ship = i;
         return true;
     }
-    // deeds count only once you have a starter (the starter is always your own choice)
+    // deeds count only once you have a starter (the starter is always your own choice).
+    // A guest's deeds are still counted, and their airships join when the tag is claimed.
     function awardShipsByDeed() {
         var events = [];
-        if (needsStarter()) return events;
+        if (needsStarter() || isGuest()) return events;
         D.SHIPS.forEach(function (s, i) {
             if (owns(i) || !s.deedTest(state)) return;
             addShip(i, "deed");
@@ -523,8 +528,36 @@
     if (account && account.tag && account.token) { if (!sharedAccount()) shareAccount(account); }
     else { account = sharedAccount(); if (account) lsWrite(ACCOUNT_KEY, account); }
     function signedIn() { return Boolean(account && account.tag && account.token); }
-    // Quake Quest (and Claude's Explain and tutor) need a signed-in Emberkite tag
-    function playable() { return accountsAvailable && signedIn(); }
+    // Quake Quest can be played with no tag, as a guest
+    function playable() { return accountsAvailable; }
+
+    // ---- guest play: a real taste with no tag in the way. A guest climbs to GUEST_MAX_RANK
+    // and flies the one airship they chose first; promotion picks and deed airships wait for
+    // the tag and arrive the moment it is claimed. Nothing a guest does leaves the device
+    // (no cloud save, no activity log, no leaderboard), and Claude's Explain and tutor cost
+    // money per answer, so they stay with tags.
+    var GUEST_MAX_RANK = 3;   // index into D.RANKS: Survey Pilot, the fourth of nine ranks
+    var GUEST_MAX_SHIPS = 1;
+    function isGuest() { return !signedIn(); }
+    function guestCapped() { return isGuest() && rankIndex(state.xp) >= GUEST_MAX_RANK; }
+    function guestLimitText() {
+        return "Guests can play up to " + D.RANKS[GUEST_MAX_RANK].title + ". Claim a tag (just a name) to keep going, save your game and join the leaderboard.";
+    }
+    function openClaim() {
+        if (!accountsAvailable) return;
+        accountView = "claim"; accountMsg = "";
+        openJournal();
+    }
+    // one short line and a button that opens the claim form, wherever a guest limit bites
+    function claimPrompt(text, cls) {
+        var wrap = el("div", cls || "quest-guest");
+        wrap.appendChild(el("p", "quest-guest-text", text));
+        var b = el("button", "quest-go", "Claim a tag");
+        b.type = "button";
+        b.addEventListener("click", openClaim);
+        wrap.appendChild(b);
+        return wrap;
+    }
     var TOKEN_HEADER = "X-Emberkite-Token";
     function tokenHeaders() { var h = {}; if (signedIn()) h[TOKEN_HEADER] = account.token; return h; }
 
@@ -535,7 +568,7 @@
         opts = opts || {};
         var store = opts.store || (function () { try { return localStorage; } catch (e) { return null; } }());
         var send = opts.fetch || (typeof fetch === "function" ? fetch : null);
-        if (!playable() || !store || !send) return false;
+        if (!accountsAvailable || !signedIn() || !store || !send) return false; // guests are never reported
         var day = (opts.now ? new Date(opts.now) : new Date()).toISOString().slice(0, 10);
         try { if (store.getItem(SEEN_KEY) === day) return false; store.setItem(SEEN_KEY, day); } catch (e) { return false; }
         try {
@@ -656,18 +689,28 @@
         pingSeen();
         announceAccount();
         return cloudSync().then(function () {
+            if (!signedIn()) return; // the sign-in was refused while syncing
             toast("☁️", (how === "claim" ? "Emberkite tag " + account.tag + " is yours" : "Signed in as " + account.tag) + ". Your Quake Quest progress is saved to the cloud.");
+            // airships whose deeds were done as a guest join now
+            var joined = awardShipsByDeed();
+            if (joined.length) {
+                save();
+                joined.forEach(function (ev, i) { setTimeout(function () { toast(ev.icon, ev.text); }, 700 * (i + 1)); });
+            }
+            renderChip(); renderScanButton();
             renderJournal();
+            refreshPopup(); // a popup that showed the guest limit asks its question now
         });
     }
     function signOut(expired) {
         account = null;
+        shownRecovery = null; pinMsg = ""; recoveryMsg = "";
         try { localStorage.removeItem(ACCOUNT_KEY); } catch (e) { /* ignore */ }
         shareAccount(null);
         cloudStatus = expired ? "This device was signed out. Sign in again to keep saving to the cloud." : "";
         if (scan) endScan();
         renderChip(); renderScanButton(); renderJournal();
-        refreshPopup(); // back to the plain facts
+        refreshPopup(); // the tutor, and the guest limits, follow the sign-in
         announceAccount();
     }
 
@@ -710,8 +753,8 @@
     }
 
     // ---- the popup gate: a question first, the facts after
-    // returns "question" (facts stay hidden), "answered" or "off" (also when signed out:
-    // without an Emberkite tag the popup is just the facts)
+    // returns "question" (facts stay hidden), "answered" or "off". A guest at the guest
+    // limit gets the facts with one line about claiming a tag instead of a new question.
     function renderPopupGate(content, props) {
         if (!playable() || !state.on || !props || !props.eventId) return "off";
         var feature = findFeature(props.eventId);
@@ -720,6 +763,11 @@
         var rec = state.answers[c.id];
         var q = buildQuestion(c, state.mode);
         var box = el("div", "quest-box");
+        if (!rec && guestCapped()) {
+            box.appendChild(claimPrompt(guestLimitText()));
+            content.appendChild(box);
+            return "answered";
+        }
         if (!rec) {
             box.appendChild(el("p", "quest-kicker", "🎯 Field question · predict before you peek"));
             box.appendChild(el("p", "quest-prompt", q.prompt));
@@ -773,6 +821,8 @@
         var key = [c.id, rec.k, rec.g, rec.a, state.mode].join("|");
         var url = tutorUrl();
         if (!url) return wrap;
+        // the tutor is Claude, paid for per answer: players with a tag only
+        if (isGuest()) return claimPrompt("🤖 The tutor can tell you why, for players with a tag. A tag is just a name.", "quest-tutor quest-guest");
         function render() {
             wrap.replaceChildren();
             var entry = tutorCache.get(key);
@@ -870,6 +920,7 @@
 
     function startScan() {
         if (needsStarter()) { openJournal("fleet"); return; }
+        if (guestCapped()) { openJournal(); return; } // nothing left to predict as a guest: the Journal says why
         var i = state.ship;
         scan = { ship: i, hits: scanMatches(i), next: 0 };
         state.stats.scans++;
@@ -966,14 +1017,6 @@
     function renderChip() {
         var chip = document.getElementById("quest-chip");
         if (!chip) return;
-        if (!playable()) {
-            // signed out: the chip opens the Journal's sign-in
-            chip.querySelector(".quest-chip-rank").textContent = "Quake Quest";
-            chip.querySelector(".quest-chip-xp").textContent = "Sign in";
-            chip.setAttribute("aria-label", "Quake Quest: sign in with your Emberkite tag");
-            chip.classList.remove("has-pick");
-            return;
-        }
         var r = rankIndex(state.xp);
         chip.querySelector(".quest-chip-rank").textContent = D.RANKS[r].title;
         chip.querySelector(".quest-chip-xp").textContent = state.xp + " XP";
@@ -1025,6 +1068,7 @@
     function closeJournal() {
         var ov = document.getElementById("quest-journal");
         if (ov) ov.hidden = true;
+        shownRecovery = null; // a recovery code is not left on a closed page
         if (lastFocus && lastFocus.focus) lastFocus.focus();
     }
 
@@ -1048,13 +1092,6 @@
         head.appendChild(close);
         dlg.appendChild(head);
 
-        // signed out: only the sign-in (Quake Quest needs an Emberkite tag)
-        if (!playable()) {
-            if (accountsAvailable) dlg.appendChild(renderAccount());
-            ov.appendChild(dlg);
-            return;
-        }
-
         // rank bar
         var next = D.RANKS[r + 1];
         var bar = el("div", "quest-rankbar");
@@ -1070,7 +1107,8 @@
         track.setAttribute("aria-valuemax", "100");
         track.setAttribute("aria-label", next ? "Progress to " + next.title : "Top rank reached");
         bar.appendChild(track);
-        bar.appendChild(el("p", "quest-rank-next", next ? (next.xp - state.xp) + " XP to " + next.title : "You command the whole survey fleet!"));
+        bar.appendChild(el("p", "quest-rank-next", guestCapped() ? "You have gone as far as a guest can."
+            : next ? (next.xp - state.xp) + " XP to " + next.title : "You command the whole survey fleet!"));
         dlg.appendChild(bar);
         if (accountsAvailable) dlg.appendChild(renderAccount());
 
@@ -1099,11 +1137,15 @@
         ov.appendChild(dlg);
     }
 
-    // ---- the account panel: claim a tag, sign in (tag + PIN, or a transfer code), or who you are
+    // ---- the account panel: a guest's limits, claim a tag (a name only), sign in (tag + PIN,
+    // or a transfer code), or who you are with the optional PIN and recovery code
     var accountView = "idle";     // idle | claim | signin | code
     var accountMsg = "";
-    var shownRecovery = null;     // a new recovery code, shown once
     var draftTag = "";            // kept when a form redraws (after an error)
+    var pinMsg = "";              // what the last "Set a PIN" did
+    var pinFailed = false;
+    var shownRecovery = null;     // a recovery code the player asked for, shown until hidden
+    var recoveryMsg = "";
     function field(label, attrs) {
         var wrap = el("label", "quest-field");
         wrap.appendChild(el("span", "quest-field-label", label));
@@ -1112,28 +1154,97 @@
         wrap.appendChild(input);
         return { wrap: wrap, input: input };
     }
+    // The PIN is optional and set from a signed-in device: it only matters when someone
+    // tries to sign in as this tag somewhere else.
+    function renderPinSection() {
+        var wrap = el("div", "quest-pin");
+        var had = Boolean(account.hasPin);
+        wrap.appendChild(el("p", "quest-account-title", had ? "🔒 Your PIN" : "🔒 PIN (optional)"));
+        wrap.appendChild(el("p", "quest-note", "A PIN stops anyone else signing in as your tag on another phone or computer. On this device you never need it."));
+        var form = el("form", "quest-account-form");
+        form.setAttribute("novalidate", "");
+        var pin = field(had ? "New PIN (4 digits)" : "PIN (4 digits)", { inputmode: "numeric", maxlength: "4", autocomplete: "off", pattern: "[0-9]*" });
+        form.appendChild(pin.wrap);
+        if (pinMsg) form.appendChild(el("p", pinFailed ? "quest-account-error" : "quest-note quest-note-strong", pinMsg));
+        var submit = el("button", "quest-go", had ? "Change PIN" : "Set a PIN");
+        submit.type = "submit";
+        var row = el("div", "quest-account-actions");
+        row.appendChild(submit);
+        form.appendChild(row);
+        form.addEventListener("submit", function (e) {
+            e.preventDefault();
+            var p = pin.input.value.trim();
+            if (!/^\d{4}$/.test(p)) { pinMsg = "A PIN is exactly 4 digits."; pinFailed = true; renderJournal(); return; }
+            submit.disabled = true;
+            var token = account.token;
+            post(ID_API + "/pin", { token: token, pin: p }).then(function (r) {
+                if (!signedIn() || account.token !== token) return; // signed out while it was on its way
+                if (r.status === 401) { signOut(true); return; }
+                pinFailed = !r.ok;
+                if (r.ok) {
+                    account.hasPin = true;
+                    lsWrite(ACCOUNT_KEY, account);
+                    shareAccount(account);
+                    pinMsg = had ? "Your PIN is changed." : "Your PIN is set. You will need it to sign in on another phone or computer.";
+                } else {
+                    pinMsg = r.error || "That didn't work. Try again.";
+                }
+                renderJournal();
+            });
+        });
+        wrap.appendChild(form);
+        return wrap;
+    }
+    // The recovery code is optional too, and only asked for: it is never shown unless the
+    // player presses the button.
+    function renderRecoverySection() {
+        var wrap = el("div", "quest-pin");
+        wrap.appendChild(el("p", "quest-account-title", "🔑 Forgot-PIN backup (optional)"));
+        wrap.appendChild(el("p", "quest-note", "Any device where you are signed in can set a new PIN, so most players never need this. If you want a backup for the day no device is signed in, get a recovery code and keep it somewhere safe. Nobody will ever ask you for it."));
+        if (shownRecovery) {
+            wrap.appendChild(el("p", "quest-recovery", shownRecovery));
+            wrap.appendChild(el("p", "quest-note", "This is your recovery code now. If you had an older code, it no longer works. Write this one down."));
+        } else {
+            wrap.appendChild(el("p", "quest-note", "Getting a new code replaces the old one."));
+        }
+        if (recoveryMsg) wrap.appendChild(el("p", "quest-account-error", recoveryMsg));
+        var row = el("div", "quest-account-actions");
+        var get = button(shownRecovery ? "Get a new code" : "Get a recovery code", "quest-go", function () {
+            get.disabled = true;
+            var token = account.token;
+            post(ID_API + "/reccode", { token: token }).then(function (r) {
+                if (!signedIn() || account.token !== token) return;
+                if (r.status === 401) { signOut(true); return; }
+                if (r.ok && r.data.recovery) { shownRecovery = String(r.data.recovery); recoveryMsg = ""; }
+                else recoveryMsg = r.ok ? "That didn't work. Try again." : r.error;
+                renderJournal();
+            });
+        });
+        row.appendChild(get);
+        if (shownRecovery) row.appendChild(button("Hide the code", "quest-go quest-go-quiet", function () { shownRecovery = null; renderJournal(); }));
+        wrap.appendChild(row);
+        return wrap;
+    }
     function renderAccount() {
         var box = el("div", "quest-account");
-        if (shownRecovery) {
-            box.appendChild(el("p", "quest-account-title", "🔑 Write this recovery code down"));
-            box.appendChild(el("p", "quest-recovery", shownRecovery));
-            box.appendChild(el("p", "quest-note", "If you ever forget your PIN, this code sets a new one. It's shown only now, and it works in Bhalo's Airship Dash too."));
-            box.appendChild(button("I've written it down", "quest-go", function () { shownRecovery = null; renderJournal(); }));
-            return box;
-        }
         if (signedIn()) {
             box.appendChild(el("p", "quest-account-title", "🛡️ Playing as " + account.tag));
-            box.appendChild(el("p", "quest-note", (cloudStatus || "Your progress is saved to the cloud.") + " The same tag works in Bhalo's Airship Dash."));
+            box.appendChild(el("p", "quest-note", (cloudStatus || "Your progress is saved to the cloud.") + " The same tag works in every Emberkite game."));
             var acts = el("div", "quest-account-actions");
             acts.appendChild(button("Leaderboard", "quest-go", function () { journalTab = "leaders"; renderJournal(); }));
             acts.appendChild(button("Sign out", "quest-go quest-go-quiet", function () { signOut(false); }));
             box.appendChild(acts);
+            box.appendChild(renderPinSection());
+            if (account.hasPin) box.appendChild(renderRecoverySection());
             return box;
         }
         if (accountView === "idle") {
-            box.appendChild(el("p", "quest-account-title", "Quake Quest needs an Emberkite tag"));
-            box.appendChild(el("p", "quest-note", "Predict each quake before you peek, fill your Field Guide and earn airships."));
-            box.appendChild(el("p", "quest-note", "One gamer tag for every Emberkite game. Already have one? Sign in with it."));
+            var capped = guestCapped();
+            box.appendChild(el("p", "quest-account-title", capped ? "👋 You have gone as far as a guest can" : "👋 Playing as a guest"));
+            if (cloudStatus) box.appendChild(el("p", "quest-note", cloudStatus));
+            box.appendChild(el("p", "quest-note" + (capped ? " quest-note-strong" : ""), capped ? guestLimitText()
+                : "Your game is kept on this device. Guests can play up to " + D.RANKS[GUEST_MAX_RANK].title + " with one airship. Claim an Emberkite tag (just a name) to keep going, save your game and join the leaderboard."));
+            box.appendChild(el("p", "quest-note", "One tag works in every Emberkite game. Already have one? Sign in with it."));
             var a = el("div", "quest-account-actions");
             a.appendChild(button("Claim an Emberkite tag", "quest-go", function () { accountView = "claim"; accountMsg = ""; renderJournal(); }));
             a.appendChild(button("Sign in", "quest-go quest-go-quiet", function () { accountView = "signin"; accountMsg = ""; renderJournal(); }));
@@ -1145,10 +1256,9 @@
         var tag = null, pin = null, code = null;
         if (accountView === "claim") {
             box.appendChild(el("p", "quest-account-title", "Claim an Emberkite tag"));
-            box.appendChild(el("p", "quest-note", "3 to 16 letters, numbers, _ or -. Don't use your real name. A 4-digit PIN lets you sign in on other devices."));
+            box.appendChild(el("p", "quest-note", "A tag is just a name: 3 to 16 letters, numbers, _ or -. Don't use your real name. Your game on this device comes with you."));
             tag = field("Emberkite tag", { autocomplete: "off", maxlength: "16", spellcheck: "false", autocapitalize: "off" });
-            pin = field("PIN (optional, 4 digits)", { inputmode: "numeric", maxlength: "4", autocomplete: "off", pattern: "[0-9]*" });
-            form.appendChild(tag.wrap); form.appendChild(pin.wrap);
+            form.appendChild(tag.wrap);
             tag.input.value = draftTag; tag.input.addEventListener("input", function () { draftTag = tag.input.value; });
         } else if (accountView === "signin") {
             box.appendChild(el("p", "quest-account-title", "Sign in"));
@@ -1175,13 +1285,10 @@
             submit.disabled = true;
             var call;
             if (accountView === "claim") {
-                var t = tag.input.value.trim(), p = pin.input.value.trim();
+                // a name is all a tag needs; the PIN is offered afterwards, in the account panel
+                var t = tag.input.value.trim();
                 if (!/^[A-Za-z0-9_-]{3,16}$/.test(t)) { accountMsg = "An Emberkite tag is 3 to 16 letters, numbers, _ or -."; renderJournal(); return; }
-                if (p && !/^\d{4}$/.test(p)) { accountMsg = "A PIN is exactly 4 digits."; renderJournal(); return; }
-                call = post(ID_API + "/player", p ? { tag: t, pin: p } : { tag: t }).then(function (r) {
-                    if (r.ok && r.data.recovery) shownRecovery = r.data.recovery;
-                    return r;
-                });
+                call = post(ID_API + "/player", { tag: t });
             } else if (accountView === "signin") {
                 call = post(ID_API + "/login", { tag: tag.input.value.trim(), pin: pin.input.value.trim() });
             } else {
@@ -1190,7 +1297,8 @@
             call.then(function (r) {
                 if (!r.ok || !r.data.token) { accountMsg = r.error || "That didn't work. Try again."; submit.disabled = false; renderJournal(); return; }
                 var how = accountView === "claim" ? "claim" : "signin";
-                accountView = "idle"; accountMsg = "";
+                accountView = "idle"; accountMsg = ""; draftTag = "";
+                pinMsg = ""; recoveryMsg = ""; shownRecovery = null;
                 useAccount(r.data, how);
             });
         });
@@ -1207,7 +1315,11 @@
         loadBoard().then(function (r) {
             list.replaceChildren();
             if (!r.ok) { list.appendChild(el("p", "quest-account-error", r.error)); return; }
-            if (!r.data.top.length) { list.appendChild(el("p", "quest-note", "No one is on the board yet. Claim an Emberkite tag and make a prediction to be first!")); return; }
+            if (!r.data.top.length) {
+                if (signedIn()) list.appendChild(el("p", "quest-note", "No one is on the board yet. Make a prediction to be first!"));
+                else list.appendChild(claimPrompt("No one is on the board yet. Claim a tag (just a name) and make a prediction to be first!"));
+                return;
+            }
             r.data.top.forEach(function (row) {
                 var item = el("div", "quest-board-row" + (row.you ? " is-you" : ""));
                 item.appendChild(el("span", "quest-board-rank", "#" + row.rank));
@@ -1219,7 +1331,7 @@
             if (r.data.you && r.data.you.rank > 20) {
                 list.appendChild(el("p", "quest-note", "You: #" + r.data.you.rank + " of " + r.data.players + " with " + r.data.you.xp + " XP."));
             } else if (!signedIn()) {
-                list.appendChild(el("p", "quest-note", "Claim an Emberkite tag to join the board."));
+                list.appendChild(claimPrompt("Guests are not on the board. Claim a tag (just a name) to join it."));
             }
         });
     }
@@ -1362,6 +1474,7 @@
         }
         var picks = picksAvailable();
         panel.appendChild(el("p", "quest-note", "Your fleet: " + state.ships.length + " of " + n + " airships. Tap 📡 Scan on the map to use the one in use."));
+        if (isGuest()) panel.appendChild(claimPrompt("Guests fly one airship. Claim a tag (just a name) to add more: one for every promotion you have earned, and any whose deed you have done."));
         if (picks) {
             panel.appendChild(el("p", "quest-pick-banner", "🎖️ Promotion: you may choose " + (picks === 1 ? "a new airship" : picks + " new airships") + " from the hangar below."));
         }
@@ -1383,7 +1496,7 @@
             panel.appendChild(el("h3", "quest-group", "In the hangar"));
             var r = rankIndex(state.xp);
             var nextRank = D.RANKS[r + 1];
-            panel.appendChild(el("p", "quest-note", "Earn one by its deed, or choose one at your next promotion" + (nextRank ? " (" + nextRank.title + ", " + nextRank.xp + " XP)." : ".")));
+            if (!isGuest()) panel.appendChild(el("p", "quest-note", "Earn one by its deed, or choose one at your next promotion" + (nextRank ? " (" + nextRank.title + ", " + nextRank.xp + " XP)." : ".")));
             hangar.forEach(function (j) {
                 var row = shipRow(j, picks ? "" : "is-locked");
                 row.querySelector(".quest-ship-body").appendChild(el("p", "quest-ship-deed", "Deed: " + D.SHIPS[j].deed + "."));
@@ -1403,7 +1516,7 @@
         if (signedIn()) cloudSync();                    // progress from your other devices
         pingSeen();
         window.addEventListener("online", function () { flushLog(); scheduleCloudSave(); });
-        if (!playable()) return;                        // signed out: the chip offers the sign-in, nothing more
+        if (!playable()) return;                        // no Quake Quest on this host
         if (!state.introSeen) {
             state.introSeen = true;
             state.fleetIntroSeen = true;
@@ -1424,8 +1537,12 @@
         openJournal: openJournal,
         // the Emberkite tag, for the map's ✨ Explain (logic.js)
         TOKEN_HEADER: TOKEN_HEADER,
-        signedIn: playable,
-        token: function () { return playable() ? account.token : null; },
+        // true only with a tag: guests play, but Explain and the tutor are for tags
+        signedIn: function () { return accountsAvailable && signedIn(); },
+        token: function () { return accountsAvailable && signedIn() ? account.token : null; },
+        isGuest: isGuest,
+        guestCapped: guestCapped,
+        guestLimits: { maxRank: GUEST_MAX_RANK, maxShips: GUEST_MAX_SHIPS },
         openSignIn: function () { if (accountsAvailable) { accountView = "idle"; accountMsg = ""; openJournal(); } },
         tokenRejected: function () { if (signedIn()) signOut(true); },
         pingSeen: pingSeen,

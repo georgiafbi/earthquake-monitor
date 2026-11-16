@@ -19,11 +19,15 @@ checks it against the shared player database (`playerFor` in
 `src/quest-api.js`) and answers `401` when it is missing, unknown, or belongs
 to a player without a tag. The token is not part of any cache key, so each
 answer is still generated once and shared by every player. The map itself
-needs no tag.
+needs no tag, and Quake Quest can be played without one as a guest: a guest
+plays up to the rank of Survey Pilot with one airship, entirely in the
+browser, and calls none of the routes below except reading the board.
 
 ## Quake Quest gamer tags
 
-Players use the same **Emberkite gamer tag** as Airship Dash. Claiming,
+Players use the same **Emberkite gamer tag** as Airship Dash. A tag is a
+name only; the PIN (`POST /pin`) and the recovery code (`POST /reccode`) are
+optional and set later from a signed-in device. Claiming,
 PIN sign-in, recovery and transfer codes are all handled by Airship Dash's
 API (`https://airshipdash.emberkitegames.com/api/...`, which allows this
 site's origin); this Worker only checks the device token it hands out,

@@ -13,13 +13,21 @@
     var APP_TODAY = [
         "A 3D globe of every earthquake USGS reports, live: size shows magnitude, colour shows depth. Pick 1 hour to 30 days, or an older range.",
         "Search by place, filter by magnitude or by origin (natural, or human-made such as quarry blasts), play a timelapse, and download the list as CSV or GeoJSON.",
-        "Tap a quake for its details, alert level and shaking. With an Emberkite tag, ✨ Explain this quake gives a plain-English account from Claude.",
+        "Tap a quake for its details, alert level and shaking. With an Emberkite tag (just a name), ✨ Explain this quake gives a plain-English account from Claude.",
         "Layers: five map styles, tectonic plates, an energy heatmap, and a fleet of airships that ping the quakes they pass.",
-        "Quake Quest (🧭), played with your Emberkite tag: predict each quake before you peek, climb the ranks and earn airships."
+        "Quake Quest (🧭): predict each quake before you peek, climb the ranks and earn airships. Start as a guest; a tag (just a name) lifts the guest limits and saves your game."
     ];
 
     /** Newest first. */
     var CHANGELOG = [
+        {
+            v: 13, date: "16 Nov 2026", title: "Play as a guest", items: [
+                "Quake Quest starts right away now, with no sign-up. Guests play up to Survey Pilot with one airship, and the game stays on this device.",
+                "A tag is just a name. Claim one to keep going, save your game and join the leaderboard. Everything you did as a guest comes with you.",
+                "A PIN is optional. Set one in the Field Journal if you want to stop anyone else signing in as your tag on another device.",
+                "✨ Explain this quake and the tutor are for players with a tag."
+            ]
+        },
         {
             v: 12, date: "14 Nov 2026", title: "Quake Quest: fairer questions", items: [
                 "Energy questions: the right answer can now be the smallest choice, the largest, or in between.",

@@ -1185,7 +1185,7 @@
         }
     });
 
-    test("Explain asks signed-out visitors for an Emberkite tag and sends a player's token in a header", function () {
+    test("Explain asks guests for an Emberkite tag and sends a player's token in a header", function () {
         var quest = window.quakeQuest;
         var realFetch = window.fetch;
         var calls = [];
@@ -1199,15 +1199,15 @@
             document.body.appendChild(section);
             section.querySelector(".quake-explain-btn").click();
             assertEqual(calls.length, 0, "nothing is sent without a tag");
-            assert(/needs an Emberkite tag/.test(section.querySelector(".quake-explain-needs-tag").textContent), "says Explain needs an Emberkite tag");
+            assert(/Explain is for players with an Emberkite tag/.test(section.querySelector(".quake-explain-needs-tag").textContent), "one friendly line: Explain is for players with a tag");
             var signIn = section.querySelector(".quake-explain-btn");
             assertEqual(signIn.textContent, "Sign in or claim a tag", "offers the sign-in");
 
             signIn.click();
             var journal = document.getElementById("quest-journal");
             assert(journal && !journal.hidden, "the Quest account panel opens");
-            assert(/Quake Quest needs an Emberkite tag/.test(journal.textContent), "with its one line about the tag");
-            assert(journal.querySelector(".quest-account") && !journal.querySelector(".quest-tab"), "only the sign-in while signed out");
+            var offers = Array.prototype.map.call(journal.querySelectorAll(".quest-account button"), function (b) { return b.textContent; });
+            assert(offers.indexOf("Claim an Emberkite tag") !== -1 && offers.indexOf("Sign in") !== -1, "with claim and sign in (" + offers.join(", ") + ")");
             journal.hidden = true;
 
             // signing in (quest.js announces it) explains the quake that was asked about
@@ -1315,36 +1315,237 @@
 
     var testPlayer = { id: 7, tag: "Tester", token: "e".repeat(48) };
 
-    test("Quake Quest without an Emberkite tag: popups are just the facts, and the Journal offers the sign-in", function () {
-        var savedGeojson = currentGeojson;
-        Q.setAccountForTests(null);
-        try {
-            currentGeojson = { type: "FeatureCollection", features: [{
-                type: "Feature", id: "qq-test-0",
-                geometry: { type: "Point", coordinates: [-178.2, -18, 560] },
-                properties: { eventId: "qq-test-0", place: "Fiji region", mag: 5.5, depth: 560, time: 0 }
-            }] };
-            var popup = helpers.buildPopupContent(currentGeojson.features[0].properties);
-            assert(!popup.querySelector(".quest-box"), "no quiz gate while signed out");
-            assert(popup.querySelectorAll(".popup-fact").length > 0, "the facts show straight away");
-            assert(!Q.signedIn() && Q.token() === null, "no tag, no token");
-
-            Q.openJournal();
-            var journal = document.getElementById("quest-journal");
-            assert(/Quake Quest needs an Emberkite tag/.test(journal.textContent), "one short line: Quake Quest needs a tag");
-            var labels = Array.prototype.map.call(journal.querySelectorAll(".quest-account button"), function (b) { return b.textContent; });
-            assert(labels.indexOf("Claim an Emberkite tag") !== -1 && labels.indexOf("Sign in") !== -1, "claim or sign in (" + labels.join(", ") + ")");
-            assert(!journal.querySelector(".quest-tab") && !journal.querySelector(".quest-rankbar"), "nothing else until signed in");
-
-            Q.setAccountForTests(testPlayer);
-            Q.openJournal("missions");
-            assert(journal.querySelector(".quest-tab") && journal.querySelector(".quest-rankbar"), "signed in: the whole Journal");
-            assert(/Playing as Tester/.test(journal.textContent), "and who you're playing as");
-            journal.hidden = true;
-        } finally {
-            currentGeojson = savedGeojson;
-            Q.setAccountForTests(null);
+    // a fetch stand-in that answers at once, so a test can follow a request to its end
+    function syncThen(value) {
+        return {
+            then: function (f) { var v = f(value); return v && typeof v.then === "function" ? v : syncThen(v); },
+            "catch": function () { return this; }
+        };
+    }
+    // run fn with fetch replaced; every call is recorded, reply(url, body) gives { status, data }
+    function withFetch(reply, fn) {
+        var realFetch = window.fetch;
+        var calls = [];
+        window.fetch = function (url, options) {
+            var body = null;
+            try { body = JSON.parse((options && options.body) || "null"); } catch (e) { body = null; }
+            calls.push({ url: String(url), body: body });
+            var r = (reply && reply(String(url), body)) || { status: 200, data: {} };
+            return syncThen({ ok: r.status >= 200 && r.status < 300, status: r.status, json: function () { return syncThen(r.data); } });
+        };
+        try { fn(calls); } finally { window.fetch = realFetch; }
+    }
+    // keep what a test writes about the player (storage and the shared cookie) out of the browser
+    function withPlayerStorage(fn) {
+        var keys = ["emberkite.player", "quakeQuest.logQueue", "emberkite.seen.quakes"];
+        var saved = {};
+        keys.forEach(function (k) { try { saved[k] = localStorage.getItem(k); } catch (e) { saved[k] = null; } });
+        try { fn(); } finally {
+            keys.forEach(function (k) { try { if (saved[k] === null) localStorage.removeItem(k); else localStorage.setItem(k, saved[k]); } catch (e) { /* ignore */ } });
+            document.cookie = "ek_player=; Path=/; Max-Age=0; SameSite=Lax";
         }
+    }
+    function rightOption(popup, feature) {
+        var q = QS.buildQuestion(QS.classifyQuake(feature), "cadet");
+        var label = q.options.find(function (o) { return o.key === q.answer; }).label;
+        return Array.prototype.find.call(popup.querySelectorAll(".quest-option"), function (b) { return b.textContent === label; });
+    }
+    function wrongOption(popup, feature) {
+        var q = QS.buildQuestion(QS.classifyQuake(feature), "cadet");
+        var label = q.options.find(function (o) { return o.key !== q.answer; }).label;
+        return Array.prototype.find.call(popup.querySelectorAll(".quest-option"), function (b) { return b.textContent === label; });
+    }
+
+    test("Quake Quest as a guest: play starts with no tag, and nothing is sent anywhere", function () {
+        var feats = [quake("guest-1", -178.2, -18, 560, 5.5), quake("guest-2", -112.5, -14, 10, 4.8)];
+        withPlayerStorage(function () {
+            withFetch(null, function (calls) {
+                withQuest(feats, function (st) {
+                    Q.setAccountForTests(null);
+                    window.EXPLAIN_API_URL = "http://localhost:8787/api/explain";
+                    try {
+                        assert(Q.isGuest() && !Q.signedIn() && Q.token() === null, "a guest: no tag, no token");
+                        var popup = helpers.buildPopupContent(feats[0].properties);
+                        assert(popup.querySelector(".quest-box .quest-option"), "the question shows straight away, with no tag form");
+                        assertEqual(popup.querySelectorAll(".popup-fact").length, 0, "predict before you peek, as for everyone");
+                        rightOption(popup, feats[0]).click();
+                        assert(st.answers["guest-1"] && st.answers["guest-1"].ok && st.xp >= 20, "the answer and its XP are recorded (" + st.xp + ")");
+                        assert(st.badges.first, "badges are earned as a guest");
+                        assert(JSON.parse(localStorage.getItem("quakeQuest.v1")).answers["guest-1"], "the save is on this device");
+                        assert(QS.chooseShip(4, "starter"), "a guest chooses a first airship");
+
+                        // a wrong guess: the tutor (Claude) is for tags, said in one line with the claim button
+                        wrongOption(helpers.buildPopupContent(feats[1].properties), feats[1]).click();
+                        var wrong = helpers.buildPopupContent(feats[1].properties);
+                        assert(wrong.querySelector(".quest-box.is-wrong") && wrong.querySelectorAll(".popup-fact").length > 0, "the facts and the lesson still show");
+                        assert(!wrong.querySelector(".quest-tutor-btn"), "no tutor button for a guest");
+                        assert(/for players with a tag/.test(wrong.querySelector(".quest-tutor").textContent), "one line says the tutor is for tags");
+                        assertEqual(wrong.querySelector(".quest-tutor button").textContent, "Claim a tag", "with the claim button");
+
+                        Q.openJournal("missions");
+                        var journal = document.getElementById("quest-journal");
+                        assert(journal.querySelector(".quest-tab") && journal.querySelector(".quest-rankbar"), "the whole Journal is open to a guest");
+                        assert(/Playing as a guest/.test(journal.textContent), "and says they are a guest");
+                        assert(/Guests can play up to Survey Pilot with one airship/.test(journal.textContent), "with the limits in one line");
+                        assert(!journal.querySelector(".quest-pin"), "no PIN section without a tag");
+                        var labels = Array.prototype.map.call(journal.querySelectorAll(".quest-account button"), function (b) { return b.textContent; });
+                        assert(labels.indexOf("Claim an Emberkite tag") !== -1 && labels.indexOf("Sign in") !== -1, "claim or sign in (" + labels.join(", ") + ")");
+                        journal.hidden = true;
+
+                        assertEqual(Q.pingSeen({ store: fakeStore({}), fetch: window.fetch }), false, "a guest is never reported as seen");
+                        assertEqual(calls.length, 0, "nothing was sent: no save, no log, no board, no ping (" + calls.map(function (c) { return c.url; }).join(", ") + ")");
+                    } finally {
+                        delete window.EXPLAIN_API_URL;
+                    }
+                });
+            });
+        });
+    });
+
+    test("Quake Quest guest limits: up to Survey Pilot, one airship, and a line with the claim button where they bite", function () {
+        var feats = [quake("cap-1", -178.2, -18, 560, 5.5)];
+        withPlayerStorage(function () {
+            withFetch(null, function (calls) {
+                withQuest(feats, function (st) {
+                    Q.setAccountForTests(null);
+                    assertEqual(Q.guestLimits.maxRank, 3, "guests play up to the fourth rank");
+                    assertEqual(window.QUEST_DATA.RANKS[Q.guestLimits.maxRank].title, "Survey Pilot", "which is Survey Pilot");
+                    assertEqual(Q.guestLimits.maxShips, 1, "with one airship");
+                    assert(QS.chooseShip(4, "starter"), "the first airship is a guest's own choice");
+
+                    st.xp = 160; // Field Observer: two promotions
+                    assertEqual(QS.picksAvailable(), 0, "a guest's promotion picks wait for the tag");
+                    assert(!QS.chooseShip(0, "pick"), "no second airship by promotion");
+                    st.stats.deepPredictions = 10;
+                    assertEqual(QS.awardShipsByDeed().length, 0, "and none by deed");
+                    assertEqual(st.ships.join(","), "4", "one airship as a guest");
+
+                    st.xp = 319;
+                    assert(!Q.guestCapped(), "still playing just below Survey Pilot");
+                    assert(helpers.buildPopupContent(feats[0].properties).querySelector(".quest-option"), "so the question is asked");
+                    st.xp = 320;
+                    assert(Q.guestCapped(), "Survey Pilot is as far as a guest goes");
+                    var popup = helpers.buildPopupContent(feats[0].properties);
+                    assert(!popup.querySelector(".quest-option"), "no new question at the limit");
+                    assert(popup.querySelectorAll(".popup-fact").length > 0, "the facts show instead");
+                    assertEqual(popup.querySelector(".quest-guest-text").textContent,
+                        "Guests can play up to Survey Pilot. Claim a tag (just a name) to keep going, save your game and join the leaderboard.", "one short line");
+                    assert(!st.answers["cap-1"], "nothing is recorded for that quake");
+
+                    popup.querySelector(".quest-guest button").click();
+                    var journal = document.getElementById("quest-journal");
+                    assert(journal && !journal.hidden, "the button opens the Journal");
+                    assert(/Claim an Emberkite tag/.test(journal.querySelector(".quest-account-title").textContent), "at the claim form");
+                    assertEqual(journal.querySelectorAll(".quest-account input").length, 1, "which asks for a name only: no PIN field");
+                    assert(/just a name/.test(journal.querySelector(".quest-account").textContent), "and says a tag is just a name");
+                    Array.prototype.find.call(journal.querySelectorAll(".quest-account button"), function (b) { return b.textContent === "Cancel"; }).click();
+                    Q.openJournal("fleet");
+                    assert(/Guests fly one airship/.test(journal.querySelector(".quest-panel").textContent), "the Fleet tab says why the hangar is shut");
+                    journal.hidden = true;
+
+                    // the tag is claimed: everything earned as a guest counts at once
+                    Q.setAccountForTests(testPlayer);
+                    assert(!Q.guestCapped() && !Q.isGuest(), "no limit with a tag");
+                    assertEqual(QS.picksAvailable(), 3, "the three promotion picks earned as a guest are waiting");
+                    var joined = QS.awardShipsByDeed();
+                    assert(QS.owns(2) && joined.length === 1, "and the airship whose deed was done as a guest joins");
+                    assert(helpers.buildPopupContent(feats[0].properties).querySelector(".quest-option"), "the quake asks its question again");
+                    assertEqual(calls.length, 0, "the limits themselves send nothing");
+                });
+            });
+        });
+    });
+
+    test("Emberkite tag: claiming sends a name only, and the guest's save goes to the cloud with it", function () {
+        var feats = [quake("claim-1", -178.2, -18, 560, 5.5)];
+        var token = "c".repeat(48);
+        withPlayerStorage(function () {
+            withFetch(function (url) {
+                if (/\/player$/.test(url)) return { status: 200, data: { id: 9, tag: "NewPlayer", hasPin: false, token: token } };
+                if (/\/quest\/load$/.test(url)) return { status: 200, data: { data: null } };
+                return { status: 200, data: {} };
+            }, function (calls) {
+                withQuest(feats, function () {
+                    Q.setAccountForTests(null);
+                    rightOption(helpers.buildPopupContent(feats[0].properties), feats[0]).click();
+                    var xp = Q.getState().xp;
+                    assertEqual(calls.length, 0, "nothing sent while a guest");
+
+                    Q.openJournal("missions");
+                    var journal = document.getElementById("quest-journal");
+                    Array.prototype.find.call(journal.querySelectorAll(".quest-account button"), function (b) { return b.textContent === "Claim an Emberkite tag"; }).click();
+                    journal.querySelector(".quest-account input").value = "NewPlayer";
+                    journal.querySelector(".quest-account form").dispatchEvent(new Event("submit", { cancelable: true }));
+
+                    var claim = calls.filter(function (c) { return /\/player$/.test(c.url); })[0];
+                    assert(claim, "the claim goes to the identity API");
+                    assertEqual(JSON.stringify(claim.body), JSON.stringify({ tag: "NewPlayer" }), "with the name and nothing else");
+                    assert(Q.signedIn() && Q.token() === token, "signed in with the new tag");
+                    assert(!/recovery code/i.test(journal.textContent) && !/Write this/.test(journal.textContent), "no recovery code step after claiming");
+                    assert(/Playing as NewPlayer/.test(journal.textContent), "the Journal shows the tag");
+
+                    var saved = calls.filter(function (c) { return /\/quest\/save$/.test(c.url); })[0];
+                    assert(saved && saved.body.token === token, "the device's game is saved to the new tag");
+                    assert(saved.body.data.answers["claim-1"] && saved.body.data.xp === xp, "with the guest's answers and XP (" + xp + ")");
+                    var logged = calls.filter(function (c) { return /\/quest\/log$/.test(c.url); })[0];
+                    assert(logged && logged.body.entries.some(function (e) { return e.id === "claim-1"; }), "and the guest's predictions go to the log, for the leaderboard");
+                    journal.hidden = true;
+                });
+            });
+        });
+    });
+
+    test("Emberkite tag: the PIN is optional and set from the account panel; the recovery code is asked for", function () {
+        var player = { id: 7, tag: "Tester", hasPin: false, token: "d".repeat(48) };
+        withPlayerStorage(function () {
+            withFetch(function (url) {
+                if (/\/pin$/.test(url)) return { status: 200, data: { ok: true } };
+                if (/\/reccode$/.test(url)) return { status: 200, data: { recovery: "ABCD-EFGH-JKLM-NPQR" } };
+                return { status: 200, data: {} };
+            }, function (calls) {
+                withQuest([], function () {
+                    Q.setAccountForTests(player);
+                    Q.openJournal("missions");
+                    var journal = document.getElementById("quest-journal");
+                    var text = function () { return journal.querySelector(".quest-account").textContent; };
+                    var press = function (label) {
+                        var b = Array.prototype.find.call(journal.querySelectorAll(".quest-account button"), function (x) { return x.textContent === label; });
+                        assert(b, "a \"" + label + "\" button");
+                        b.click();
+                    };
+                    assert(/A PIN stops anyone else signing in as your tag on another phone or computer\. On this device you never need it\./.test(text()), "the PIN in plain words");
+                    assert(!/Forgot-PIN backup/.test(text()), "no recovery section before a PIN exists");
+                    assertEqual(journal.querySelectorAll(".quest-pin").length, 1, "just the PIN section");
+
+                    journal.querySelector(".quest-pin input").value = "12";
+                    journal.querySelector(".quest-pin form").dispatchEvent(new Event("submit", { cancelable: true }));
+                    assert(/exactly 4 digits/.test(text()), "a short PIN is refused");
+                    assertEqual(calls.length, 0, "and not sent");
+
+                    assertEqual(journal.querySelector(".quest-pin button[type=submit]").textContent, "Set a PIN", "Set a PIN");
+                    journal.querySelector(".quest-pin input").value = "4821";
+                    journal.querySelector(".quest-pin form").dispatchEvent(new Event("submit", { cancelable: true }));
+                    assert(/\/pin$/.test(calls[0].url), "the PIN goes to the identity API (" + calls[0].url + ")");
+                    assertEqual(JSON.stringify(calls[0].body), JSON.stringify({ token: player.token, pin: "4821" }), "with the device token");
+                    assertEqual(player.hasPin, true, "the account now has a PIN");
+                    assertEqual(JSON.parse(localStorage.getItem("emberkite.player")).hasPin, true, "saved on this device");
+                    assert(/ek_player=/.test(document.cookie) && /hasPin%22%3Atrue|"hasPin":true/.test(decodeURIComponent(document.cookie) + document.cookie), "and shared with the other games");
+                    assertEqual(journal.querySelector(".quest-pin button[type=submit]").textContent, "Change PIN", "the button now changes the PIN");
+
+                    assert(/Forgot-PIN backup \(optional\)/.test(text()) && /Nobody will ever ask you for it\./.test(text()), "the optional backup is explained");
+                    assert(/Getting a new code replaces the old one\./.test(text()), "and that a new code replaces the old one");
+                    assert(!journal.querySelector(".quest-recovery"), "no code is shown until it is asked for");
+                    press("Get a recovery code");
+                    assert(/\/reccode$/.test(calls[1].url), "the code is asked for (" + calls[1].url + ")");
+                    assertEqual(JSON.stringify(calls[1].body), JSON.stringify({ token: player.token }), "with the device token only");
+                    assertEqual(journal.querySelector(".quest-recovery").textContent, "ABCD-EFGH-JKLM-NPQR", "and shown inline");
+                    assert(/older code, it no longer works/.test(text()), "with a line that the old code is replaced");
+                    press("Hide the code");
+                    assert(!journal.querySelector(".quest-recovery"), "the code can be hidden");
+                    journal.hidden = true;
+                });
+            });
+        });
     });
 
     test("Emberkite seen ping: once per UTC day per device, only when signed in, silent on failure", function () {
@@ -1453,12 +1654,14 @@
         var saved = null;
         try { saved = localStorage.getItem("quakeQuest.v1"); } catch (e) { /* ignore */ }
         Q.resetForTests();
+        Q.setAccountForTests(testPlayer); // a player with a tag; guest tests sign out inside fn
         try {
             currentGeojson = { type: "FeatureCollection", features: features };
             fn(Q.getState());
         } finally {
             currentGeojson = savedGeojson;
             Q.resetForTests();
+            Q.setAccountForTests(null);
             try { if (saved === null) localStorage.removeItem("quakeQuest.v1"); else localStorage.setItem("quakeQuest.v1", saved); } catch (e) { /* ignore */ }
         }
     }

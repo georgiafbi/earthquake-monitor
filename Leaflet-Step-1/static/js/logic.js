@@ -1358,7 +1358,8 @@ function getExplainApiUrl() {
     return typeof EXPLAIN_API_URL === "string" && EXPLAIN_API_URL ? EXPLAIN_API_URL : null;
 }
 
-// Explain needs an Emberkite tag (the account lives in quest.js). The token goes
+// Explain is for players with an Emberkite tag: each answer costs money, so guests
+// are asked to claim one (the account lives in quest.js). The token goes
 // in a header, never the URL; the Worker's shared cache doesn't depend on it.
 function getEmberkiteToken() {
     var quest = window.quakeQuest;
@@ -1462,10 +1463,10 @@ function renderExplainSection(section, eventId) {
     }
 
     if (entry && entry.state === "needsTag") {
-        // signed out (or the device's sign-in expired): offer the Quake Quest sign-in
+        // a guest (or the device's sign-in expired): offer the Quake Quest sign-in
         var needsTag = document.createElement("p");
         needsTag.className = "quake-explain-status quake-explain-needs-tag";
-        needsTag.textContent = "✨ Explain needs an Emberkite tag, your gamer tag for every Emberkite game.";
+        needsTag.textContent = "✨ Explain is for players with an Emberkite tag. A tag is just a name, and it is free.";
         section.appendChild(needsTag);
         var quest = window.quakeQuest;
         if (quest && typeof quest.openSignIn === "function") {

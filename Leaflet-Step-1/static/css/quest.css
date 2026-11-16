@@ -275,6 +275,11 @@
   text-align: center;
   user-select: all;
 }
+/* the optional PIN and recovery code, under "Playing as" */
+.quest-pin { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid rgba(125, 211, 252, 0.2); }
+/* a guest limit: one line and a button to the claim form */
+.quest-guest { display: grid; gap: 8px; justify-items: start; }
+.quest-guest-text { margin: 0; color: #e2e8f0; font-size: 0.8rem; line-height: 1.4; }
 .quest-board { display: grid; gap: 6px; }
 .quest-board-row {
   display: grid;
