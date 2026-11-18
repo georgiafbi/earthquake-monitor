@@ -21,6 +21,13 @@
     /** Newest first. */
     var CHANGELOG = [
         {
+            v: 14, date: "18 Nov 2026", title: "Quake Quest has music", items: [
+                "Quake Quest plays calm music now: 'Survey Flight', made in Google Flow Music.",
+                "It only plays while the Field Journal is open or a scan is running. Just looking at the globe stays quiet.",
+                "Turn it off with ♪ Music in the Field Journal (🧭)."
+            ]
+        },
+        {
             v: 13, date: "16 Nov 2026", title: "Play as a guest", items: [
                 "Quake Quest starts right away now, with no sign-up. Guests play up to Survey Pilot with one airship, and the game stays on this device.",
                 "A tag is just a name. Claim one to keep going, save your game and join the leaderboard. Everything you did as a guest comes with you.",

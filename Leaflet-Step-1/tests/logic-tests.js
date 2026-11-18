@@ -1784,6 +1784,39 @@
         };
     }
 
+    test("Quake Quest music: only while the quest is open, with a remembered ♪ Music toggle", function () {
+        var savedMusic = null;
+        try { savedMusic = localStorage.getItem("quest.music"); localStorage.removeItem("quest.music"); } catch (e) { /* ignore */ }
+        withQuest([], function () {
+            var journal = document.getElementById("quest-journal");
+            if (journal && !journal.hidden) journal.querySelector(".quest-close").click();
+            assert(!Q.musicState().wanted, "the globe alone stays quiet");
+
+            Q.openJournal("badges");
+            journal = document.getElementById("quest-journal");
+            assertEqual(Q.musicState().wanted, !document.hidden, "the open Field Journal plays it");
+            function musicButtons() {
+                var seg = Array.prototype.find.call(journal.querySelectorAll(".quest-seg"), function (s) { return s.querySelector(".quest-seg-label").textContent === "♪ Music"; });
+                assert(seg, "the Journal has a ♪ Music toggle");
+                return seg.querySelectorAll(".quest-seg-btn");
+            }
+            assertEqual(musicButtons()[0].getAttribute("aria-pressed"), "true", "on by default");
+
+            musicButtons()[1].click();
+            assert(!Q.musicState().on && !Q.musicState().wanted, "Off stops it, even with the Journal open");
+            assertEqual(localStorage.getItem("quest.music"), "off", "and is remembered");
+            assertEqual(musicButtons()[1].getAttribute("aria-pressed"), "true", "the toggle shows Off");
+
+            musicButtons()[0].click();
+            assertEqual(Q.musicState().wanted, !document.hidden, "On brings it back");
+            assertEqual(localStorage.getItem("quest.music"), "on", "remembered too");
+
+            journal.querySelector(".quest-close").click();
+            assert(!Q.musicState().wanted, "closing the Journal stops it");
+        });
+        try { if (savedMusic === null) localStorage.removeItem("quest.music"); else localStorage.setItem("quest.music", savedMusic); } catch (e) { /* ignore */ }
+    });
+
     test("What's new: the changelog is newest first, numbered without gaps, and complete", function () {
         var U = window.quakeUpdates;
         assert(U, "updates.js loaded");

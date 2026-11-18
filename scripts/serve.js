@@ -20,7 +20,8 @@ const MIME_TYPES = {
     ".pdf": "application/pdf",
     ".woff": "font/woff",
     ".woff2": "font/woff2",
-    ".ttf": "font/ttf"
+    ".ttf": "font/ttf",
+    ".mp3": "audio/mpeg"
 };
 
 function createServer(port = PORT, rootDir = ROOT_DIR) {

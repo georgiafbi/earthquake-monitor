@@ -935,11 +935,13 @@
         save();
         setScanRings(scan.hits, shipColor(i));
         renderScanPanel();
+        musicSync();
     }
     function endScan() {
         scan = null;
         setScanRings([], "#fbbf24");
         renderScanPanel();
+        musicSync();
     }
     function flyToNextHit() {
         if (!scan || !scan.hits.length) return;
@@ -971,6 +973,7 @@
             panel.id = "quest-scan-panel";
             panel.setAttribute("role", "region");
             panel.setAttribute("aria-live", "polite");
+            panel.addEventListener("click", musicSync); // a tap here may start music a browser refused
             host.appendChild(panel);
         }
         panel.hidden = false;
@@ -1021,6 +1024,105 @@
         renderScanButton();
     }
 
+    // ================================================================ music
+    // 'Survey Flight' (made in Google Flow Music) plays only while Quake Quest is in use: the
+    // Field Journal is open or a scan is running. Someone only looking at the globe never hears
+    // it. Off with the ♪ Music toggle in the Journal (kept in localStorage) or the map's 🔇.
+    var MUSIC_KEY = "quest.music";
+    var MUSIC_VOLUME = 0.3; // gentle: the airship whistles and quake tones stay clearly audible
+    var MUSIC_FADE = 1.2;   // seconds
+    var MUSIC_URL = (function () {
+        var s = document.currentScript && document.currentScript.src;
+        var u = s ? s.replace(/js\/quest\.js(\?.*)?$/, "music/survey-flight.mp3") : "";
+        return u && u !== s ? u : "Leaflet-Step-1/static/music/survey-flight.mp3";
+    }());
+    var musicOn = (function () { try { return localStorage.getItem(MUSIC_KEY) !== "off"; } catch (e) { return true; } }());
+    var music = null;       // { el, ctx, gain } once first needed
+    var musicStopTimer = null;
+
+    function questInUse() {
+        var ov = document.getElementById("quest-journal");
+        return Boolean(ov && !ov.hidden) || Boolean(scan);
+    }
+    // the map's own audio button (🔊 / 🔇 in logic.js) mutes the music too
+    function mapAudioOn() { return typeof isSeismicAudioEnabled === "undefined" || Boolean(isSeismicAudioEnabled); }
+    function musicWanted() { return musicOn && mapAudioOn() && questInUse() && !document.hidden; }
+
+    // the page's AudioContext: the one the airship whistles use (logic.js), made here if none yet
+    function sharedAudioCtx() {
+        if (typeof airshipAudioCtx !== "undefined" && airshipAudioCtx) return airshipAudioCtx;
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        var ctx = null;
+        try { ctx = new AC(); } catch (e) { return null; }
+        if (typeof airshipAudioCtx !== "undefined") airshipAudioCtx = ctx; // the whistles share it
+        return ctx;
+    }
+    function quietly(p) { if (p && typeof p.catch === "function") p.catch(function () { /* refused before a tap: the next quest tap tries again */ }); }
+
+    function musicStart() {
+        if (musicStopTimer) { clearTimeout(musicStopTimer); musicStopTimer = null; }
+        try {
+            if (!music) {
+                var a = new Audio(MUSIC_URL);
+                a.loop = true;
+                a.preload = "auto";
+                music = { el: a, ctx: null, gain: null };
+                var ctx = sharedAudioCtx();
+                if (ctx) {
+                    try {
+                        var g = ctx.createGain();
+                        g.gain.value = 0;
+                        ctx.createMediaElementSource(a).connect(g);
+                        g.connect(ctx.destination);
+                        music.ctx = ctx;
+                        music.gain = g;
+                    } catch (e) { music.ctx = null; music.gain = null; }
+                }
+            }
+            if (music.ctx && music.ctx.state === "suspended") quietly(music.ctx.resume());
+            if (music.gain) {
+                var now = music.ctx.currentTime, gn = music.gain.gain;
+                gn.cancelScheduledValues(now);
+                gn.setValueAtTime(gn.value, now);
+                gn.linearRampToValueAtTime(MUSIC_VOLUME, now + MUSIC_FADE);
+            } else {
+                music.el.volume = MUSIC_VOLUME;
+            }
+            if (music.el.paused) quietly(music.el.play());
+        } catch (e) { /* no audio here: the quest plays on in silence */ }
+    }
+    function musicStop(fast) {
+        if (!music || music.el.paused || musicStopTimer) return;
+        var secs = fast ? 0.15 : MUSIC_FADE;
+        try {
+            if (music.gain) {
+                var now = music.ctx.currentTime, gn = music.gain.gain;
+                gn.cancelScheduledValues(now);
+                gn.setValueAtTime(gn.value, now);
+                gn.linearRampToValueAtTime(0, now + secs);
+            }
+        } catch (e) { secs = 0; }
+        musicStopTimer = setTimeout(function () {
+            musicStopTimer = null;
+            if (musicWanted()) { musicStart(); return; } // back in the quest while it faded
+            try { music.el.pause(); } catch (e) { /* ignore */ }
+        }, music.gain ? secs * 1000 : 0);
+    }
+    // start right away (inside the tap that opened the quest); stop a moment later, so closing
+    // the Journal to start a scan doesn't dip the music
+    function musicSync() { if (musicWanted()) musicStart(); else if (document.hidden) musicStop(true); else setTimeout(function () { if (!musicWanted()) musicStop(false); }, 0); }
+    function setMusicOn(on) {
+        musicOn = on;
+        try { localStorage.setItem(MUSIC_KEY, on ? "on" : "off"); } catch (e) { /* ignore */ }
+        musicSync();
+    }
+    function mountMusic() {
+        document.addEventListener("visibilitychange", musicSync); // paused while the tab is hidden
+        var mapAudio = document.getElementById("toggle-seismic-audio");
+        if (mapAudio) mapAudio.addEventListener("click", function () { setTimeout(musicSync, 0); }); // after logic.js flips it
+    }
+
     // ================================================================ header chip + journal
     function renderChip() {
         var chip = document.getElementById("quest-chip");
@@ -1065,6 +1167,7 @@
             ov.id = "quest-journal";
             ov.addEventListener("click", function (e) { if (e.target === ov) closeJournal(); });
             ov.addEventListener("keydown", function (e) { if (e.key === "Escape") closeJournal(); });
+            ov.addEventListener("click", musicSync); // music refused before a tap starts on the next one
             document.body.appendChild(ov);
         }
         lastFocus = document.activeElement;
@@ -1072,12 +1175,14 @@
         renderJournal();
         var first = ov.querySelector(".quest-tab.is-active") || ov.querySelector(".quest-account button");
         if (first) first.focus();
+        musicSync();
     }
     function closeJournal() {
         var ov = document.getElementById("quest-journal");
         if (ov) ov.hidden = true;
         shownRecovery = null; // a recovery code is not left on a closed page
         if (lastFocus && lastFocus.focus) lastFocus.focus();
+        musicSync();
     }
 
     function renderJournal() {
@@ -1124,6 +1229,7 @@
         var set = el("div", "quest-settings");
         set.appendChild(segmented("Level", [["cadet", "🧒 Cadet"], ["scientist", "🥼 Scientist"]], state.mode, function (v) { state.mode = v; save(); renderJournal(); refreshPopup(); }));
         set.appendChild(segmented("Questions in popups", [["on", "On"], ["off", "Off"]], state.on ? "on" : "off", function (v) { state.on = v === "on"; save(); if (!state.on) endScan(); renderScanButton(); renderJournal(); refreshPopup(); }));
+        set.appendChild(segmented("♪ Music", [["on", "On"], ["off", "Off"]], musicOn ? "on" : "off", function (v) { setMusicOn(v === "on"); renderJournal(); }));
         dlg.appendChild(set);
 
         // tabs
@@ -1521,7 +1627,8 @@
     function init() {
         mountChip();
         mountScanButton();
-        if (signedIn()) cloudSync();                    // progress from your other devices
+        mountMusic();
+        if (signedIn()) cloudSync();                   // progress from your other devices
         pingSeen();
         window.addEventListener("online", function () { flushLog(); scheduleCloudSave(); });
         if (!playable()) return;                        // no Quake Quest on this host
@@ -1555,6 +1662,8 @@
         tokenRejected: function () { if (signedIn()) signOut(true); },
         pingSeen: pingSeen,
         getState: function () { return state; },
+        // for tests: is the toggle on, and would the music play right now
+        musicState: function () { return { on: musicOn, wanted: musicWanted() }; },
         resetForTests: function () { state = defaultState(); classCache.clear(); },
         // tests sign a fake player in or out without touching storage or the network
         setAccountForTests: function (a) { account = a; },
