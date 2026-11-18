@@ -521,12 +521,20 @@
         try {
             var v = a && a.tag && a.token ? encodeURIComponent(JSON.stringify({ id: a.id, tag: a.tag, hasPin: !!a.hasPin, token: a.token })) : "";
             var home = /(^|[.])emberkitegames[.]com$/.test(location.hostname);
+            // signed out here: every game on the device signs out too
+            document.cookie = "ek_signout=" + (v ? "" : Date.now()) + "; " + (home ? "Domain=emberkitegames.com; Secure; " : "") + "Path=/; Max-Age=" + (v ? 0 : 34560000) + "; SameSite=Lax";
             document.cookie = "ek_player=" + v + "; " + (home ? "Domain=emberkitegames.com; Secure; " : "") + "Path=/; Max-Age=" + (v ? 34560000 : 0) + "; SameSite=Lax";
         } catch (e) { /* cookies blocked: this game keeps its own sign-in */ }
     }
     var account = lsRead(ACCOUNT_KEY, null); // { id, tag, hasPin, token }
-    if (account && account.tag && account.token) { if (!sharedAccount()) shareAccount(account); }
-    else { account = sharedAccount(); if (account) lsWrite(ACCOUNT_KEY, account); }
+    // One sign-in for the device (emberkitegames.com and every game): the newest sign-in anywhere wins, and so does a sign-out.
+    (function () {
+        var sp = sharedAccount(), out = /(?:^|; )ek_signout=\d+/.test(document.cookie);
+        if (account && account.tag && account.token) {
+            if (sp && sp.token !== account.token) { account = sp; lsWrite(ACCOUNT_KEY, account); }   // signed in as another tag somewhere since
+            else if (!sp) { if (out) { account = null; lsWrite(ACCOUNT_KEY, null); } else shareAccount(account); }   // signed out somewhere since
+        } else { account = sp; if (account) lsWrite(ACCOUNT_KEY, account); }
+    }());
     function signedIn() { return Boolean(account && account.tag && account.token); }
     // Quake Quest can be played with no tag, as a guest
     function playable() { return accountsAvailable; }
