@@ -21,6 +21,15 @@
     /** Newest first. */
     var CHANGELOG = [
         {
+            v: 15, date: "18 Nov 2026", title: "Quake Quest: a kinder welcome", items: [
+                "A first visit now opens with a welcome: tap any quake and answer right away. You choose your first airship after your first answer.",
+                "Quakes with a yellow, orange or red PAGER alert may have hurt people. They are never cheered, and Scan, daily missions and \"Show me one\" never send you to them.",
+                "PAGER alerts are now a lesson to read in the Field Guide, not an entry to collect. XP you already earned stays.",
+                "The music now also plays while you answer questions in quake popups, and fades half a minute after your last answer. Just looking at the globe still stays quiet.",
+                "On phones the map legend is bigger and sits in two rows, so \"Regional Max\" isn't cut off, and the Field Journal's switches and tabs are easier to tap."
+            ]
+        },
+        {
             v: 14, date: "18 Nov 2026", title: "Quake Quest has music", items: [
                 "Quake Quest plays calm music now: 'Survey Flight', made in Google Flow Music.",
                 "It only plays while the Field Journal is open or a scan is running. Just looking at the globe stays quiet.",

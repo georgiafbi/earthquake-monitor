@@ -106,8 +106,17 @@
     var SPECIAL = {
         tsunami: { label: "Tsunami-capable", icon: "🌊", cadet: "Big quakes under the sea can lift the sea floor and push the water above into a tsunami. USGS flags quakes that are big enough and in the right place; official warnings come from tsunami centres.", scientist: "The USGS tsunami flag marks large oceanic events (roughly M6.5+) whose source could generate a tsunami. It is informational; warnings come from the Tsunami Warning Centers." },
         induced: { label: "Human-made", icon: "⛏️", cadet: "Some shaking is caused by people: quarry blasts, mining, or pumping water deep underground, which can wake up old faults.", scientist: "Anthropogenic seismicity includes explosions (quarry and mining blasts) and induced earthquakes from wastewater injection, hydraulic fracturing, reservoirs and mining." },
-        felt100: { label: "Felt by 100+ people", icon: "🙋", cadet: "When people feel a quake they can tell USGS on the 'Did You Feel It?' page. Reports from 100 or more people help scientists map the shaking.", scientist: "'Did You Feel It?' crowdsources intensity reports; with enough responses USGS maps community intensity (CDI) and checks ShakeMap estimates." },
-        pager: { label: "PAGER alert", icon: "🚨", cadet: "For big quakes USGS quickly estimates how many people might be hurt and how much damage there could be. Green means little, red means a lot.", scientist: "PAGER (Prompt Assessment of Global Earthquakes for Response) estimates fatalities and losses from ShakeMap and population exposure, alerting green, yellow, orange or red." }
+        felt100: { label: "Felt by 100+ people", icon: "🙋", cadet: "When people feel a quake they can tell USGS on the 'Did You Feel It?' page. Reports from 100 or more people help scientists map the shaking.", scientist: "'Did You Feel It?' crowdsources intensity reports; with enough responses USGS maps community intensity (CDI) and checks ShakeMap estimates." }
+    };
+
+    // PAGER alerts: a lesson to read, not a kind to collect. A yellow, orange or red alert means
+    // people may have been hurt, so such a quake is never celebrated or sent to (the harm rule:
+    // isHarmful in quest.js). It was a Field Guide entry worth XP until 18 Nov 2026; saves that
+    // logged it keep "special:pager" in collected, and the Field Guide simply doesn't count it.
+    var PAGER = {
+        label: "About PAGER alerts", icon: "🚨",
+        cadet: "For big quakes USGS quickly estimates how many people might be hurt and how much damage there could be. Green means little, red means a lot. A quake with a yellow, orange or red alert may have hurt people, so Quake Quest never cheers it or sends you to it. You can still answer its question, and it is logged quietly.",
+        scientist: "PAGER (Prompt Assessment of Global Earthquakes for Response) estimates fatalities and losses from ShakeMap and population exposure, alerting green, yellow, orange or red. Quake Quest treats yellow, orange and red events quietly: no celebration, and Scan and daily missions never point to them."
     };
 
     // ---- collection: every category a quake can belong to
@@ -233,7 +242,7 @@
     ];
 
     window.QUEST_DATA = {
-        DEPTH: DEPTH, KINDS: KINDS, ENERGY: ENERGY, ENERGY_STEPS: ENERGY_STEPS, ENERGY_LADDERS: ENERGY_LADDERS, TNT: TNT, MAGNITUDE: MAGNITUDE, REGIONS: REGIONS, SPECIAL: SPECIAL,
+        DEPTH: DEPTH, KINDS: KINDS, ENERGY: ENERGY, ENERGY_STEPS: ENERGY_STEPS, ENERGY_LADDERS: ENERGY_LADDERS, TNT: TNT, MAGNITUDE: MAGNITUDE, REGIONS: REGIONS, SPECIAL: SPECIAL, PAGER: PAGER,
         CATEGORIES: CATEGORIES, RANKS: RANKS, XP: XP, BADGES: BADGES, MISSIONS: MISSIONS, SKILL_MISSIONS: SKILL_MISSIONS,
         SHIPS: SHIPS
     };

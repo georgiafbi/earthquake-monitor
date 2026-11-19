@@ -33,6 +33,8 @@ const EVENT_ID = /^[a-z0-9]{4,40}$/i;
 // Highest XP a player can plausibly have, given what the server has logged for them
 // (see XP in quest-data.js): 20 + 5 streak bonus per prediction, the 26 Field Guide
 // categories (15 each) and 14 badges (25 each) once, and 3 missions (40 each) a day.
+// (The Field Guide has 25 kinds since 18 Nov 2026, when the PAGER entry stopped paying XP;
+// the ceiling keeps 26 for players who logged it before.)
 export function xpCeiling(predictions, activeDays) {
     return 25 * predictions + 26 * 15 + 14 * 25 + 120 * activeDays;
 }

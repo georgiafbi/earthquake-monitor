@@ -162,13 +162,16 @@
         if (c.tsunami) keys.push("special:tsunami");
         if (c.induced) keys.push("special:induced");
         if (c.felt >= 100) keys.push("special:felt100");
-        if (c.pager) keys.push("special:pager");
+        // (no PAGER entry: an alert is not something to collect; see PAGER in quest-data.js)
         return keys;
     }
 
-    // Orange and red PAGER alerts mean people have probably been hurt. The question and the
-    // lesson stay, but nothing about such a quake is celebrated (see answerToasts).
-    function isHarmful(c) { return Boolean(c) && (c.alert === "orange" || c.alert === "red"); }
+    // The harm rule: a yellow, orange or red PAGER alert means people may have been hurt. The
+    // question and the lesson stay, but nothing about such a quake is celebrated (see
+    // answerToasts), and Scan, "Show me one" and the daily missions never send anyone to it.
+    // Green alerts are ordinary quakes.
+    var HARMFUL_ALERTS = { yellow: true, orange: true, red: true };
+    function isHarmful(c) { return Boolean(c) && HARMFUL_ALERTS[c.alert] === true; }
 
     function hashString(s) {
         var h = 2166136261;
@@ -305,7 +308,8 @@
         if (d && d.date === date && (d.dataReady || !list.length || d.predictedToday > 0)) return d;
         var seed = hashString("missions" + date);
         // only missions that can still be done: a matching quake you haven't answered yet
-        var data = D.MISSIONS.filter(function (m) { return list.some(function (c) { return m.match(c) && !state.answers[c.id]; }); })
+        // (and not one with a yellow, orange or red alert: a mission never sends anyone to it)
+        var data = D.MISSIONS.filter(function (m) { return list.some(function (c) { return m.match(c) && !state.answers[c.id] && !isHarmful(c); }); })
             .sort(function (a, b) { return hashString(date + a.id) - hashString(date + b.id); });
         var picks = data.slice(0, 2).map(function (m) { return m.id; });
         var skills = D.SKILL_MISSIONS.slice();
@@ -385,17 +389,22 @@
         if (after > before) {
             var canPick = picksAvailable() > 0;
             var rankNote = canPick ? " Choose a new airship in your Field Journal."
-                : guestCapped() ? " That is as far as guests go. Claim a tag (just a name) in your Field Journal to keep going." : "";
+                : guestCapped() ? " That is as far as guests go. Claim a tag (just a name) in your Field Journal to keep going."
+                : needsStarter() ? " Choose your first airship in your Field Journal (🧭)." : "";
             events.push({ type: "rank", icon: "🎖️", text: "Promoted to " + D.RANKS[after].title + "!" + rankNote });
+        } else if (needsStarter() && state.stats.predictions === 1) {
+            // the airships come after the first answer, not before it: questions don't need one
+            events.push({ type: "starter", icon: "🛸", text: "Next: choose your first airship in your Field Journal (🧭). Its instrument finds quakes for you." });
         }
         save();
         return { ok: ok, gained: gained, events: events, rankUp: after > before, quiet: isHarmful(c) };
     }
 
     // What to say after an answer: at most three toasts. The result; a promotion or a new
-    // airship (they need a choice or change what Scan does); and one line for everything else.
-    // A quake with an orange or red PAGER alert gets one plain line and no fanfare: the XP,
-    // Field Guide entries and badges are still recorded, and show in the Field Journal.
+    // airship, or the first airship to choose (they need a choice or change what Scan does); and
+    // one line for everything else.
+    // A quake with a yellow, orange or red PAGER alert gets one plain line and no fanfare: the
+    // XP, Field Guide entries and badges are still recorded, and show in the Field Journal.
     function answerToasts(r) {
         if (r.quiet) return [{ icon: "📘", text: "Logged in your Field Journal." }];
         var out = [{ icon: r.ok ? "✅" : "📘", text: (r.ok ? "Right! " : "Good try! ") + "+" + r.gained + " XP" + (r.events.length ? " in all" : "") }];
@@ -404,7 +413,7 @@
             for (var i = 0; i < rest.length; i++) if (rest[i].type === type) return rest.splice(i, 1)[0];
             return null;
         }
-        var lead = take("rank") || take("ship");
+        var lead = take("rank") || take("ship") || take("starter");
         if (lead) out.push(lead);
         if (rest.length === 1) out.push(rest[0]);
         if (rest.length > 1) {
@@ -735,7 +744,8 @@
         return e;
     }
 
-    function toast(icon, text) {
+    // ms: how long it stays (default 3.6 s; longer for a line that has to be read first)
+    function toast(icon, text, ms) {
         var box = document.getElementById("quest-toasts");
         if (!box) {
             box = el("div", "quest-toasts");
@@ -747,8 +757,9 @@
         t.appendChild(el("span", "quest-toast-icon", icon));
         t.appendChild(el("span", null, text));
         box.appendChild(t);
-        setTimeout(function () { t.classList.add("is-leaving"); }, 3600);
-        setTimeout(function () { t.remove(); }, 4100);
+        var stay = ms || 3600;
+        setTimeout(function () { t.classList.add("is-leaving"); }, stay);
+        setTimeout(function () { t.remove(); }, stay + 500);
     }
 
     function findFeature(id) {
@@ -777,6 +788,7 @@
             return "answered";
         }
         if (!rec) {
+            keepAnswerMusic(); // still answering: the music keeps going while the next question is read
             box.appendChild(el("p", "quest-kicker", "🎯 Field question · predict before you peek"));
             box.appendChild(el("p", "quest-prompt", q.prompt));
             var opts = el("div", "quest-options");
@@ -788,6 +800,7 @@
                 b.addEventListener("click", function () {
                     var r = recordAnswer(c, q, o.key);
                     answerToasts(r).forEach(function (ev, i) { setTimeout(function () { toast(ev.icon, ev.text); }, 700 * i); });
+                    if (!r.quiet) startAnswerMusic(); // inside the tap, so the browser lets it play
                     refreshPopup();
                 });
                 opts.appendChild(b);
@@ -809,7 +822,7 @@
         var asked = q.kind === rec.k ? q : Object.assign({}, q, { kind: rec.k, answer: rec.a });
         var correctLabel = q.kind === rec.k ? answerLabel(q, rec.a, c) : rec.a;
         box.classList.add(rec.ok ? "is-right" : "is-wrong");
-        // no tick or cheer on a quake with an orange or red PAGER alert
+        // no tick or cheer on a quake with a yellow, orange or red PAGER alert
         var rightText = isHarmful(c) ? "📘 You were right: " : "✅ You got it: ";
         box.appendChild(el("p", "quest-result", rec.ok ? rightText + correctLabel : "📘 It was " + correctLabel + (q.kind === rec.k ? " (you said " + answerLabel(q, rec.g, c).replace(/^About /, "about ") + ")" : "")));
         box.appendChild(el("p", "quest-lesson", lessonFor(asked, c, state.mode)));
@@ -885,13 +898,14 @@
         };
     }
     // quakes on the map you haven't predicted that this ship's instrument picks up
+    // (never one with a yellow, orange or red alert: the harm rule, see isHarmful)
     function scanMatches(i) {
         var s = D.SHIPS[i];
         var ctx = scanContext();
         var feats = (typeof currentGeojson !== "undefined" && currentGeojson && currentGeojson.features) || [];
         var hits = feats.filter(function (f) {
             var c = classifyQuake(f);
-            return c && !state.answers[c.id] && s.match(c, ctx);
+            return c && !state.answers[c.id] && !isHarmful(c) && s.match(c, ctx);
         });
         hits.sort(s.sort === "time"
             ? function (a, b) { return Number(b.properties.time) - Number(a.properties.time); }
@@ -1026,8 +1040,12 @@
 
     // ================================================================ music
     // 'Survey Flight' (made in Google Flow Music) plays only while Quake Quest is in use: the
-    // Field Journal is open or a scan is running. Someone only looking at the globe never hears
-    // it. Off with the ♪ Music toggle in the Journal (kept in localStorage) or the map's 🔇.
+    // Field Journal is open, a scan is running, or the player is answering questions in quake
+    // popups (it comes in with an answer and fades ANSWER_MUSIC_MS after the last one; reading
+    // the next question keeps it going). Someone only looking at the globe never hears it:
+    // opening a popup, or skipping to the facts, starts nothing, and nor does an answer on a
+    // quake with an alert (see isHarmful). Off with the ♪ Music toggle in the Journal (kept in
+    // localStorage) or the map's 🔇.
     var MUSIC_KEY = "quest.music";
     var MUSIC_VOLUME = 0.3; // gentle: the airship whistles and quake tones stay clearly audible
     var MUSIC_FADE = 1.2;   // seconds
@@ -1039,11 +1057,24 @@
     var musicOn = (function () { try { return localStorage.getItem(MUSIC_KEY) !== "off"; } catch (e) { return true; } }());
     var music = null;       // { el, ctx, gain } once first needed
     var musicStopTimer = null;
+    var ANSWER_MUSIC_MS = 30000;
+    var answerMusicUntil = 0;   // Date.now() until which the popup questions count as "in use"
+    var answerMusicTimer = null;
 
     function questInUse() {
         var ov = document.getElementById("quest-journal");
-        return Boolean(ov && !ov.hidden) || Boolean(scan);
+        return Boolean(ov && !ov.hidden) || Boolean(scan) || Date.now() < answerMusicUntil;
     }
+    // an answer in a quake popup: the music comes in, and fades ANSWER_MUSIC_MS later
+    function startAnswerMusic() {
+        answerMusicUntil = Date.now() + ANSWER_MUSIC_MS;
+        clearTimeout(answerMusicTimer);
+        answerMusicTimer = setTimeout(musicSync, ANSWER_MUSIC_MS + 50);
+        musicSync();
+    }
+    // a new question while the music from an answer is still playing keeps it going
+    function keepAnswerMusic() { if (Date.now() < answerMusicUntil) startAnswerMusic(); }
+    function stopAnswerMusic() { answerMusicUntil = 0; clearTimeout(answerMusicTimer); answerMusicTimer = null; }
     // the map's own audio button (🔊 / 🔇 in logic.js) mutes the music too
     function mapAudioOn() { return typeof isSeismicAudioEnabled === "undefined" || Boolean(isSeismicAudioEnabled); }
     function musicWanted() { return musicOn && mapAudioOn() && questInUse() && !document.hidden; }
@@ -1228,7 +1259,7 @@
         // settings
         var set = el("div", "quest-settings");
         set.appendChild(segmented("Level", [["cadet", "🧒 Cadet"], ["scientist", "🥼 Scientist"]], state.mode, function (v) { state.mode = v; save(); renderJournal(); refreshPopup(); }));
-        set.appendChild(segmented("Questions in popups", [["on", "On"], ["off", "Off"]], state.on ? "on" : "off", function (v) { state.on = v === "on"; save(); if (!state.on) endScan(); renderScanButton(); renderJournal(); refreshPopup(); }));
+        set.appendChild(segmented("Questions in popups", [["on", "On"], ["off", "Off"]], state.on ? "on" : "off", function (v) { state.on = v === "on"; save(); if (!state.on) { endScan(); stopAnswerMusic(); } renderScanButton(); renderJournal(); refreshPopup(); }));
         set.appendChild(segmented("♪ Music", [["on", "On"], ["off", "Off"]], musicOn ? "on" : "off", function (v) { setMusicOn(v === "on"); renderJournal(); }));
         dlg.appendChild(set);
 
@@ -1497,7 +1528,7 @@
         var feats = (typeof currentGeojson !== "undefined" && currentGeojson && currentGeojson.features) || [];
         for (var i = 0; i < feats.length; i++) {
             var c = classifyQuake(feats[i]);
-            if (c && m.match(c) && !state.answers[c.id]) return feats[i];
+            if (c && m.match(c) && !state.answers[c.id] && !isHarmful(c)) return feats[i]; // never sends anyone to an alerted quake
         }
         return null;
     }
@@ -1518,7 +1549,7 @@
                 card.appendChild(el("span", "quest-card-label", cat.label));
                 card.setAttribute("aria-label", cat.label + (got ? ", logged" : ", not logged yet"));
                 card.addEventListener("click", function () {
-                    var lesson = panel.querySelector(".quest-lesson-card");
+                    var lesson = panel.querySelector(".quest-lesson-card:not(.quest-guide-note)");
                     if (lesson) lesson.remove();
                     var box = el("div", "quest-lesson-card");
                     box.appendChild(el("p", "quest-lesson-title", cat.icon + " " + cat.label));
@@ -1529,6 +1560,13 @@
             });
             panel.appendChild(grid);
         });
+        // PAGER alerts: always open to read, never collected (the harm rule)
+        if (D.PAGER) {
+            var note = el("div", "quest-lesson-card quest-guide-note");
+            note.appendChild(el("p", "quest-lesson-title", D.PAGER.icon + " " + D.PAGER.label));
+            note.appendChild(el("p", null, D.PAGER[state.mode === "scientist" ? "scientist" : "cadet"]));
+            panel.appendChild(note);
+        }
     }
 
     function renderBadges(panel) {
@@ -1636,7 +1674,8 @@
             state.introSeen = true;
             state.fleetIntroSeen = true;
             save();
-            setTimeout(function () { toast("🧭", "New: Quake Quest! Choose your first airship in the Field Journal at the top, then tap a quake and predict before you peek."); }, 2500);
+            // a welcome, long enough to read; the airships are offered after the first answer
+            setTimeout(function () { toast("🧭", "Welcome to Quake Quest! Tap any quake on the globe and predict before you peek.", 8000); }, 2500);
         } else if (!state.fleetIntroSeen) {
             state.fleetIntroSeen = true;
             save();
@@ -1663,8 +1702,8 @@
         pingSeen: pingSeen,
         getState: function () { return state; },
         // for tests: is the toggle on, and would the music play right now
-        musicState: function () { return { on: musicOn, wanted: musicWanted() }; },
-        resetForTests: function () { state = defaultState(); classCache.clear(); },
+        musicState: function () { return { on: musicOn, wanted: musicWanted(), answerMs: Math.max(0, answerMusicUntil - Date.now()) }; },
+        resetForTests: function () { state = defaultState(); classCache.clear(); stopAnswerMusic(); musicSync(); },
         // tests sign a fake player in or out without touching storage or the network
         setAccountForTests: function (a) { account = a; },
         science: {
@@ -1672,7 +1711,7 @@
             segmentDistanceKm: segmentDistanceKm, buildBoundaryIndex: buildBoundaryIndex, classifyBoundary: classifyBoundary,
             classifyQuake: classifyQuake, categoriesFor: categoriesFor, buildQuestion: buildQuestion, questionKinds: questionKinds,
             recordAnswer: recordAnswer, answerToasts: answerToasts, answerLabel: answerLabel, isHarmful: isHarmful, rankIndex: rankIndex, ensureDaily: ensureDaily,
-            needsStarter: needsStarter, picksAvailable: picksAvailable, chooseShip: chooseShip, owns: owns, scanMatches: scanMatches, awardShipsByDeed: awardShipsByDeed,
+            needsStarter: needsStarter, picksAvailable: picksAvailable, chooseShip: chooseShip, owns: owns, scanMatches: scanMatches, findMissionQuake: findMissionQuake, awardShipsByDeed: awardShipsByDeed,
             loadState: loadState, mergeStates: mergeStates
         }
     };

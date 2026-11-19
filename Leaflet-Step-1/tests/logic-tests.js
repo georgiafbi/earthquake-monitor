@@ -1610,15 +1610,22 @@
         }
     });
 
-    test("Quake Quest: an orange or red PAGER alert gets one quiet line; other answers at most three messages", function () {
+    test("Quake Quest: a yellow, orange or red PAGER alert gets one quiet line; other answers at most three messages", function () {
         var feats = [
             quake("pager-red", 37.0, 37.2, 10, 7.8, { pager: { level: "red" } }),
-            quake("pager-green", -178.2, -18, 560, 5.5, { pager: { level: "green" } })
+            quake("pager-green", -178.2, -18, 560, 5.5, { pager: { level: "green" } }),
+            quake("pager-yellow", 142.4, 38.3, 30, 6.4, { alert: "yellow" }),
+            quake("pager-orange", 85.3, 28.2, 15, 6.9, { pager: { level: "orange" } })
         ];
         withQuest(feats, function (st) {
             QS.chooseShip(0, "starter");
             var red = QS.classifyQuake(feats[0]), green = QS.classifyQuake(feats[1]);
-            assert(QS.isHarmful(red) && !QS.isHarmful(green), "only orange and red alerts count as harmful");
+            var yellow = QS.classifyQuake(feats[2]), orange = QS.classifyQuake(feats[3]);
+            assert(QS.isHarmful(red) && QS.isHarmful(orange) && QS.isHarmful(yellow), "yellow, orange and red alerts count as harmful");
+            assert(!QS.isHarmful(green) && !QS.isHarmful(QS.classifyQuake(quake("no-alert", 0, 0, 10, 4))), "green alerts and quakes with no alert are ordinary");
+            var qy = QS.buildQuestion(yellow, "cadet");
+            var ty = QS.answerToasts(QS.recordAnswer(yellow, qy, qy.answer));
+            assert(ty.length === 1 && !/Right|XP|!/.test(ty[0].text), "a yellow alert is not cheered either: " + ty[0].text);
             var q = QS.buildQuestion(red, "cadet");
             var r = QS.recordAnswer(red, q, q.answer);
             var toasts = QS.answerToasts(r);
@@ -1629,6 +1636,97 @@
             var t2 = QS.answerToasts(QS.recordAnswer(green, q2, q2.answer));
             assert(t2.length <= 3 && /^Right! \+\d+ XP/.test(t2[0].text), "an ordinary quake: the result first, three messages at most (" + t2.length + ")");
         });
+    });
+
+    test("Quake Quest harm rule: no PAGER entry to collect, and nothing sends a player to an alerted quake", function () {
+        var D = window.QUEST_DATA;
+        assert(!D.CATEGORIES.some(function (c) { return c.key === "special:pager"; }), "the Field Guide has no PAGER entry to collect");
+        assert(D.PAGER && /yellow, orange or red/.test(D.PAGER.cadet), "PAGER alerts are a lesson to read instead");
+        var feats = [
+            quake("deep-yellow", -178.2, -18, 560, 6.1, { alert: "yellow" }),
+            quake("deep-red", -177.9, -17.5, 600, 6.3, { pager: { level: "red" } }),
+            quake("shallow-green", -112.5, -14, 10, 4.8, { pager: { level: "green" } })
+        ];
+        withQuest(feats, function (st) {
+            var green = QS.classifyQuake(feats[2]);
+            assertEqual(QS.categoriesFor(green).filter(function (k) { return /pager/.test(k); }).length, 0, "even a green alert logs no PAGER entry (and pays no XP for one)");
+            var picked = QS.ensureDaily().missions;
+            assert(picked.indexOf("deep") === -1, "no deep-quake mission when the only deep quakes have alerts (" + picked.join(",") + ")");
+            var deepMission = window.QUEST_DATA.MISSIONS.filter(function (m) { return m.id === "deep"; })[0];
+            assertEqual(QS.findMissionQuake(deepMission), null, "\"Show me one\" never picks an alerted quake");
+            QS.chooseShip(8, "starter"); // Fresh Ink: finds every quake you haven't predicted
+            var ids = QS.scanMatches(8).map(function (f) { return f.properties.eventId; }).join(",");
+            assertEqual(ids, "shallow-green", "Scan rings only the quake with no harmful alert");
+            assertEqual(QS.scanMatches(2).length, 0, "the Deep Sounder hears neither alerted deep quake");
+        });
+    });
+
+    test("Quake Quest harm rule: saved journals that logged the old PAGER entry still load and count right", function () {
+        withQuest([], function (st) {
+            st.collected["special:pager"] = { id: "old", t: 1 };
+            st.collected["depth:deep"] = { id: "a", t: 2 };
+            st.xp = 55;
+            Q.openJournal("guide");
+            var journal = document.getElementById("quest-journal");
+            var total = window.QUEST_DATA.CATEGORIES.length;
+            assert(new RegExp("1 of " + total + " kinds").test(journal.textContent), "the old entry is not counted: 1 of " + total);
+            assert(journal.querySelector(".quest-guide-note") && /About PAGER alerts/.test(journal.textContent), "the PAGER lesson is there to read");
+            journal.querySelector(".quest-card.is-got").click();
+            assert(journal.querySelector(".quest-guide-note"), "opening a lesson card keeps the PAGER note");
+            assertEqual(st.xp, 55, "XP already earned stays");
+            var m = QS.mergeStates(st, { v: 1, xp: 10, stats: {}, collected: {}, badges: {}, answers: {}, ships: [] });
+            assert(m.collected["special:pager"] && m.xp === 55, "and survives a cloud merge");
+            journal.querySelector(".quest-close").click();
+        });
+    });
+
+    test("Quake Quest first answer: a newcomer is offered the first airship after answering, not before", function () {
+        var feats = [quake("first-q", -112.5, -14, 10, 3.2)];
+        withQuest(feats, function () {
+            assert(QS.needsStarter(), "no airship yet");
+            var c = QS.classifyQuake(feats[0]);
+            var q = QS.buildQuestion(c, "cadet");
+            var toasts = QS.answerToasts(QS.recordAnswer(c, q, q.answer));
+            assert(toasts.length <= 3, "three messages at most (" + toasts.length + ")");
+            assert(toasts.some(function (t) { return /first airship/.test(t.text); }), "one of them offers the first airship: " + toasts.map(function (t) { return t.text; }).join(" | "));
+        });
+        withQuest(feats, function (st) {
+            st.xp = 1000; // no promotion from this answer: the offer comes as its own message
+            var c = QS.classifyQuake(feats[0]);
+            var q = QS.buildQuestion(c, "cadet");
+            var toasts = QS.answerToasts(QS.recordAnswer(c, q, q.answer));
+            assert(toasts.length <= 3 && /first airship/.test(toasts[1] && toasts[1].text), "right after the result: " + toasts.map(function (t) { return t.text; }).join(" | "));
+            var c2 = QS.classifyQuake(quake("second-q", -120.5, 36, 8, 2.1));
+            var q2 = QS.buildQuestion(c2, "cadet");
+            assert(!QS.answerToasts(QS.recordAnswer(c2, q2, q2.answer)).some(function (t) { return /first airship/.test(t.text); }), "offered once, not after every answer");
+        });
+    });
+
+    test("Quake Quest music: answering in a quake popup brings it in; looking, skipping or an alerted quake stays quiet", function () {
+        var savedMusic = null;
+        try { savedMusic = localStorage.getItem("quest.music"); localStorage.removeItem("quest.music"); } catch (e) { /* ignore */ }
+        var feats = [
+            quake("music-a", -178.2, -18, 560, 5.5),
+            quake("music-b", -112.5, -14, 10, 4.8),
+            quake("music-alert", 142.4, 38.3, 30, 6.4, { alert: "orange" })
+        ];
+        function popupFor(i) { return helpers.buildPopupContent(feats[i].properties); }
+        function firstOption(box) { return box.querySelector(".quest-option"); }
+        withQuest(feats, function () {
+            var a = popupFor(0);
+            assert(a.querySelector(".quest-box"), "a question is shown");
+            assertEqual(Q.musicState().answerMs, 0, "opening a quake popup starts nothing");
+            popupFor(1).querySelector(".quest-skip").click();
+            assertEqual(Q.musicState().answerMs, 0, "skipping to the facts starts nothing");
+            firstOption(popupFor(2)).click();
+            assertEqual(Q.musicState().answerMs, 0, "an answer on an alerted quake starts nothing");
+            firstOption(a).click();
+            var ms = Q.musicState().answerMs;
+            assert(ms > 25000 && ms <= 30000, "an answer brings the music in for half a minute (" + ms + " ms)");
+            assertEqual(Q.musicState().wanted, !document.hidden, "and it is wanted now");
+        });
+        assertEqual(Q.musicState().answerMs, 0, "reset after the test");
+        try { if (savedMusic === null) localStorage.removeItem("quest.music"); else localStorage.setItem("quest.music", savedMusic); } catch (e) { /* ignore */ }
     });
 
     test("Quake Quest: a mission is only picked while a matching quake is still unanswered", function () {

@@ -105,7 +105,7 @@
 </main>
 
 <script src="Leaflet-Step-1/static/js/logic.js?v=20261116_guest"></script>
-<script src="Leaflet-Step-1/static/js/quest-data.js?v=20261114_crew"></script>
+<script src="Leaflet-Step-1/static/js/quest-data.js?v=20261118_kitewatch"></script>
 <script>
 (function () {
   "use strict";
@@ -170,6 +170,8 @@
       box.appendChild(grid);
     });
     box.appendChild(el("p", "dim", D.CATEGORIES.length + " kinds in all."));
+    // PAGER alerts are a lesson, never a kind to collect (the harm rule)
+    if (D.PAGER) { var g = el("div", "grid"); g.appendChild(card(D.PAGER.icon, D.PAGER.label, D.PAGER[mode])); box.appendChild(g); }
   }
 
   function renderQuestions() {

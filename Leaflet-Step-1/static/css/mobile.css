@@ -82,7 +82,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .stats-panel .stat-label { font-size: 0.58rem; }
+  .stats-panel .stat-label { font-size: 0.68rem; } /* about 11 px: readable at arm's length */
 
   /* filter chips and tools wrap when opened */
   .mag-filters,

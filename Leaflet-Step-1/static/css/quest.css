@@ -411,6 +411,13 @@
 @media (prefers-reduced-motion: reduce) {
   .quest-toast { transition: none; }
 }
+/* touch screens: the Field Journal's switches, tabs and buttons are finger-sized (44 px) */
+@media (pointer: coarse), (max-width: 900px), (max-height: 500px) {
+  .quest-seg-btn { min-height: 44px; min-width: 52px; }
+  .quest-tab,
+  .quest-dialog .quest-go { min-height: 44px; }
+  .quest-close { width: 44px; height: 44px; }
+}
 @media (max-width: 520px) {
   .quest-chip-xp { display: none; }
   .quest-dialog { padding: 14px; }
