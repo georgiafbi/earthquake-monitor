@@ -1946,6 +1946,39 @@
         assertEqual(missed[0].v, U.VERSION, "the one they missed");
     });
 
+    test("Quake Quest story: only a real story counts, and it is shown as plain text", function () {
+        var S = window.quakeQuest.story;
+        assertEqual(S.validLore(null), null, "nothing: no story");
+        assertEqual(S.validLore({ error: "hidden" }), null, "the hidden answer: no story");
+        assertEqual(S.validLore({ title: "T", chapters: [] }), null, "no chapters: no story");
+        assertEqual(S.validLore({ title: "", chapters: [{ heading: "H", paragraphs: ["p"] }] }), null, "no title: no story");
+        var ok = S.validLore({ title: "T", tagline: 5, chapters: [{ heading: "H", paragraphs: ["p", 7, ""] }, null] });
+        assert(ok && ok.chapters.length === 1 && ok.chapters[0].paragraphs.length === 1, "odd entries are dropped");
+        assertEqual(ok.tagline, "", "a tagline that isn't text is left out");
+        assertEqual(S.loreBase(), "https://emberkitegames.com", "the lore comes from the home site unless a local test says otherwise");
+
+        var before = JSON.stringify(window.quakeQuest.getState());
+        var trap = "<img src=x onerror=\"window.__storyHacked=1\">";
+        S.setForTests({ title: trap, tagline: trap, chapters: [{ heading: trap, paragraphs: [trap, "Second"] }] });
+        S.open();
+        var dlg = document.querySelector("#quest-story [role='dialog']");
+        try {
+            assert(dlg, "the story opens as a dialog");
+            assertEqual(dlg.getAttribute("aria-modal"), "true", "a modal dialog");
+            assert(document.getElementById(dlg.getAttribute("aria-labelledby")), "labelled by its title");
+            assertEqual(dlg.querySelectorAll("img").length, 0, "lore text never becomes markup");
+            assertEqual(dlg.querySelector(".quest-title").textContent, trap, "the title is shown as typed");
+            assertEqual(dlg.querySelectorAll(".quest-story-text").length, 2, "every paragraph is shown");
+            assertEqual(document.activeElement, dlg.querySelector(".quest-story-close"), "focus moves into the story");
+            assertEqual(JSON.stringify(window.quakeQuest.getState()), before, "opening the story changes nothing in the game");
+            dlg.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            assertEqual(document.getElementById("quest-story"), null, "Esc closes it");
+        } finally {
+            S.close(true);
+            S.setForTests(null);
+        }
+    });
+
     var failed = results.filter(function (result) { return !result.passed; });
     var list = document.getElementById("results");
     results.forEach(function (result) {

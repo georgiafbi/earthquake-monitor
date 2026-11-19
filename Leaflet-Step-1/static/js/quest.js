@@ -1154,6 +1154,128 @@
         if (mapAudio) mapAudio.addEventListener("click", function () { setTimeout(musicSync, 0); }); // after logic.js flips it
     }
 
+    // ================================================================ story
+    // The lore of Quake Quest, written once and switched on or off in the Emberkite admin. The
+    // home site serves it at /api/lore/quakequest: 200 with the story while it is shown, 404 while
+    // it is hidden. It is fetched once per page load without holding anything up, and the
+    // 📜 Story button in the Field Journal appears only when a real story came back. Opening it
+    // changes nothing in the game: no save, no music, no tag. The story is plain text and is
+    // only ever put on the page with textContent.
+    var LORE_KEY = "quakequest";
+    var LORE_TIMEOUT_MS = 8000;
+    var lore = null;            // the story, once fetched and checked
+    var storyLastFocus = null;
+    function loreBase() {
+        var base = "https://emberkitegames.com";
+        if (ON_LOCALHOST) { // local testing only: ?lorebase=http://127.0.0.1:<port>
+            try {
+                var b = new URLSearchParams(location.search).get("lorebase");
+                if (b && /^https?:\/\/[^\s/?#]+$/.test(b)) base = b;
+            } catch (e) { /* no override */ }
+        }
+        return base;
+    }
+    function validLore(d) {
+        if (!d || typeof d !== "object" || typeof d.title !== "string" || !d.title.trim() || !Array.isArray(d.chapters) || !d.chapters.length) return null;
+        var chapters = d.chapters.filter(function (c) { return c && typeof c === "object"; }).map(function (c) {
+            return {
+                heading: typeof c.heading === "string" ? c.heading : "",
+                paragraphs: (Array.isArray(c.paragraphs) ? c.paragraphs : []).filter(function (p) { return typeof p === "string" && p.trim(); })
+            };
+        }).filter(function (c) { return c.heading || c.paragraphs.length; });
+        if (!chapters.length) return null;
+        return { title: d.title, tagline: typeof d.tagline === "string" ? d.tagline : "", chapters: chapters };
+    }
+    function fetchLore() {
+        if (typeof fetch !== "function") return;
+        var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+        var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, LORE_TIMEOUT_MS) : null;
+        fetch(loreBase() + "/api/lore/" + LORE_KEY, { credentials: "omit", signal: ctrl ? ctrl.signal : undefined })
+            .then(function (r) { return r.status === 200 ? r.json() : null; })
+            .then(function (d) {
+                lore = validLore(d);
+                if (lore) mountStoryButton(); // the Journal may already be open
+            })
+            .catch(function () { /* hidden, offline or slow: no Story button, and no error */ })
+            .then(function () { if (timer) clearTimeout(timer); });
+    }
+    function storyButton() {
+        var b = el("button", "quest-story-btn", "📜 Story");
+        b.type = "button";
+        b.id = "quest-story-btn";
+        b.setAttribute("aria-haspopup", "dialog");
+        b.addEventListener("click", openStory);
+        return b;
+    }
+    // into an open Journal's header, just before its close button
+    function mountStoryButton() {
+        var head = document.querySelector("#quest-journal .quest-head");
+        if (!lore || !head || head.querySelector(".quest-story-btn")) return;
+        head.insertBefore(storyButton(), head.querySelector(".quest-close"));
+    }
+    function storyFocusables(dlg) {
+        return Array.prototype.filter.call(dlg.querySelectorAll("button, [tabindex='0']"), function (n) { return n.getClientRects().length > 0; });
+    }
+    function openStory() {
+        if (!lore) return;
+        closeStory(true);
+        storyLastFocus = document.activeElement;
+        var ov = el("div", "quest-overlay quest-story-overlay");
+        ov.id = "quest-story";
+        var dlg = el("div", "quest-dialog quest-story");
+        dlg.setAttribute("role", "dialog");
+        dlg.setAttribute("aria-modal", "true");
+        dlg.setAttribute("aria-labelledby", "quest-story-title");
+        var head = el("div", "quest-head");
+        var title = el("h2", "quest-title", lore.title);
+        title.id = "quest-story-title";
+        head.appendChild(title);
+        var close = el("button", "quest-close quest-story-close", "✕");
+        close.type = "button";
+        close.setAttribute("aria-label", "Close the story");
+        close.addEventListener("click", function () { closeStory(); });
+        head.appendChild(close);
+        dlg.appendChild(head);
+        var body = el("div", "quest-story-body");
+        body.tabIndex = 0; // keyboards can scroll it
+        body.setAttribute("aria-label", "The story");
+        if (lore.tagline) body.appendChild(el("p", "quest-story-tagline", lore.tagline));
+        lore.chapters.forEach(function (c) {
+            var sec = el("section", "quest-story-chapter");
+            if (c.heading) sec.appendChild(el("h3", "quest-story-heading", c.heading));
+            c.paragraphs.forEach(function (p) { sec.appendChild(el("p", "quest-story-text", p)); });
+            body.appendChild(sec);
+        });
+        dlg.appendChild(body);
+        ov.appendChild(dlg);
+        ov.addEventListener("click", function (e) { if (e.target === ov) closeStory(); });
+        ov.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" || e.key === "Esc") {
+                e.stopPropagation(); // the Journal underneath stays open
+                e.preventDefault();
+                closeStory();
+            } else if (e.key === "Tab") { // keep focus inside the story
+                var f = storyFocusables(dlg);
+                if (!f.length) return;
+                var i = f.indexOf(document.activeElement);
+                if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+                else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+            }
+        });
+        document.body.appendChild(ov);
+        close.focus();
+    }
+    function closeStory(quiet) {
+        var ov = document.getElementById("quest-story");
+        if (!ov) return;
+        ov.remove();
+        if (quiet) return;
+        // back to the Story button (the Journal may have redrawn it meanwhile)
+        var back = document.getElementById("quest-story-btn") || storyLastFocus;
+        storyLastFocus = null;
+        if (back && back.focus) back.focus();
+    }
+
     // ================================================================ header chip + journal
     function renderChip() {
         var chip = document.getElementById("quest-chip");
@@ -1229,6 +1351,7 @@
         var title = el("h2", "quest-title", "🧭 Field Journal");
         title.id = "quest-title";
         head.appendChild(title);
+        if (lore) head.appendChild(storyButton()); // only when the story is switched on
         var close = el("button", "quest-close", "✕");
         close.type = "button";
         close.setAttribute("aria-label", "Close the Field Journal");
@@ -1670,6 +1793,7 @@
         pingSeen();
         window.addEventListener("online", function () { flushLog(); scheduleCloudSave(); });
         if (!playable()) return;                        // no Quake Quest on this host
+        fetchLore();                                    // the 📜 Story, if it is switched on
         if (!state.introSeen) {
             state.introSeen = true;
             state.fleetIntroSeen = true;
@@ -1701,6 +1825,11 @@
         tokenRejected: function () { if (signedIn()) signOut(true); },
         pingSeen: pingSeen,
         getState: function () { return state; },
+        // the 📜 Story: tests check the checks and the panel without the network
+        story: {
+            validLore: validLore, loreBase: loreBase, open: openStory, close: closeStory,
+            setForTests: function (d) { lore = validLore(d); }, current: function () { return lore; }
+        },
         // for tests: is the toggle on, and would the music play right now
         musicState: function () { return { on: musicOn, wanted: musicWanted(), answerMs: Math.max(0, answerMusicUntil - Date.now()) }; },
         resetForTests: function () { state = defaultState(); classCache.clear(); stopAnswerMusic(); musicSync(); },

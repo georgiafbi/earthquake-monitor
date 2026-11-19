@@ -408,6 +408,49 @@
   .quest-scan-btn { min-height: 36px; }
 }
 
+/* 📜 Story: a button in the Field Journal's header (only while the story is switched on) and its panel */
+.quest-head .quest-title { min-width: 0; overflow-wrap: anywhere; }
+.quest-story-btn {
+  flex: none;
+  margin-left: auto;
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fde68a;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.quest-story-btn:hover { background: rgba(251, 191, 36, 0.2); }
+.quest-story-btn:focus-visible,
+.quest-story-body:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+.quest-overlay.quest-story-overlay { z-index: 2600; } /* above the Field Journal */
+.quest-dialog.quest-story {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  overflow: hidden; /* the story scrolls, the header stays */
+}
+.quest-story .quest-head { flex: none; }
+.quest-story-close { flex: none; width: 44px; height: 44px; font-size: 1.05rem; }
+.quest-story-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 10px;
+  padding: 2px 6px 4px 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 8px;
+}
+.quest-story-tagline { margin: 0 0 6px; color: #fde68a; font-size: 1rem; font-style: italic; line-height: 1.5; overflow-wrap: anywhere; }
+.quest-story-chapter { padding-top: 14px; border-top: 1px solid rgba(251, 191, 36, 0.18); margin-top: 14px; }
+.quest-story-heading { margin: 0 0 8px; color: #fde68a; font-size: 1.08rem; line-height: 1.3; overflow-wrap: anywhere; }
+.quest-story-text { margin: 0 0 12px; color: #e2e8f0; font-size: 1rem; line-height: 1.6; overflow-wrap: anywhere; }
+.quest-story-text:last-child { margin-bottom: 0; }
+
 @media (prefers-reduced-motion: reduce) {
   .quest-toast { transition: none; }
 }
@@ -415,6 +458,7 @@
 @media (pointer: coarse), (max-width: 900px), (max-height: 500px) {
   .quest-seg-btn { min-height: 44px; min-width: 52px; }
   .quest-tab,
+  .quest-story-btn,
   .quest-dialog .quest-go { min-height: 44px; }
   .quest-close { width: 44px; height: 44px; }
 }
