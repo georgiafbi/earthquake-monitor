@@ -21,6 +21,15 @@
     /** Newest first. */
     var CHANGELOG = [
         {
+            v: 16, date: "21 Nov 2026", title: "Five fixes", items: [
+                "The Feed List now shows the 50 strongest quakes that match your filters, strongest first. Before, it showed the 50 weakest.",
+                "Pausing the timelapse, or dragging its slider, now holds the map at that moment. Before, every quake came back. ■ ends the replay.",
+                "The toolbar's Timelapse button now pauses and resumes, as its label says. Before, \"Pause Timelapse\" ended the replay.",
+                "The airships' whistles follow the 🔊 Audio switch, and a quake with a yellow, orange or red PAGER alert gets their searchlights only, never a whistle.",
+                "Quakes the USGS lists as \"induced or triggered\" (set off by people, for example by injecting fluid underground) now count as ⛏️ Induced, not 🌍 Natural."
+            ]
+        },
+        {
             v: 15, date: "18 Nov 2026", title: "Quake Quest: a kinder welcome", items: [
                 "A first visit now opens with a welcome: tap any quake and answer right away. You choose your first airship after your first answer.",
                 "Quakes with a yellow, orange or red PAGER alert may have hurt people. They are never cheered, and Scan, daily missions and \"Show me one\" never send you to them.",

@@ -77,6 +77,8 @@ let isSeismicAudioEnabled = true;
 let seismicAudioCtx = null;
 let searchQuery = "";
 let isTimelapsePlaying = false;
+// True from Timelapse until ■ (or the toolbar's Stop): paused or dragged, the map keeps showing only the quakes up to the slider.
+let isTimelapseOpen = false;
 let timelapseTimer = null;
 let timelapseProgress = 0;
 let currentGeojson = { type: "FeatureCollection", features: [] };
@@ -577,6 +579,7 @@ function classifyEventOrigin(type, place) {
         "mine collapse": { category: "Mine Collapse", icon: "🏚️", description: "Mine roof or shaft collapse" },
         "sonic boom": { category: "Sonic Boom", icon: "✈️", description: "Atmospheric supersonic shockwave" },
         "induced": { category: "Induced Event", icon: "⛏️", description: "Human-induced seismic event" },
+        "induced or triggered event": { category: "Induced or Triggered", icon: "⛏️", description: "Earthquake induced or triggered by human activity, such as fluid injection or reservoir filling" },
         "accidental explosion": { category: "Explosion", icon: "💥", description: "Accidental surface explosion" }
     };
 
@@ -2158,7 +2161,7 @@ function setOriginFilter(origin) {
 
 function getVisibleGeojson() {
     var timeMax = null;
-    if (isTimelapsePlaying) {
+    if (isTimelapseOpen) {
         var sorted = currentGeojson.features.slice().sort(function (a, b) { return a.properties.time - b.properties.time; });
         if (sorted.length) {
             var minT = sorted[0].properties.time;
@@ -3907,6 +3910,17 @@ function getAirshipVesselForLatitude(lat) {
 
 var activePingVessels = { 0: null, 1: null, 2: null };
 
+// The harm rule (as in Quake Quest): a yellow, orange or red PAGER alert means people may have been hurt, so the
+// squadron lights its lamps (the depth is still worth knowing) but never whistles, which could sound like a cheer.
+// Automatic whistles also follow the 🔊 Audio switch; the drawer's 💨 Whistle button is a direct ask and still plays.
+var QUIET_ALERTS = { yellow: true, orange: true, red: true };
+
+function mayWhistleFor(quakeFeature) {
+    if (!isSeismicAudioEnabled) return false;
+    var alert = quakeFeature && quakeFeature.properties && quakeFeature.properties.alert;
+    return !(typeof alert === "string" && QUIET_ALERTS[alert.toLowerCase()]);
+}
+
 function triggerAirshipDetectionPing(vIdx, quakeFeature, shouldWhistle) {
     if (!quakeFeature || typeof vIdx !== "number") return;
     var depthKey = quakeFeature.properties && quakeFeature.properties.depthKey;
@@ -3914,8 +3928,8 @@ function triggerAirshipDetectionPing(vIdx, quakeFeature, shouldWhistle) {
     var pingColor = depthDef.color;
     var colorHex = parseInt(pingColor.replace("#", "0x"), 16);
 
-    // Whistle sound for that vessel
-    if (shouldWhistle !== false) {
+    // Whistle sound for that vessel: only with audio on, and never for a quake that may have hurt people
+    if (shouldWhistle !== false && mayWhistleFor(quakeFeature)) {
         soundSteamWhistle(vIdx);
     }
 
@@ -4949,19 +4963,22 @@ function toggleFeedDrawer(show) {
     }
 }
 
+// The Feed List keeps 50 entries, so it lists the strongest first (unknown magnitudes last), newest first on a tie.
+function compareFeedOrder(a, b) {
+    var magA = getNumericMagnitude(a.properties.mag);
+    var magB = getNumericMagnitude(b.properties.mag);
+    if (magA !== magB) {
+        return (magB !== null ? magB : -99) - (magA !== null ? magA : -99);
+    }
+    return (b.properties.time || 0) - (a.properties.time || 0);
+}
+
 function renderFeedDrawer() {
     var listEl = document.getElementById("feed-drawer-list");
     var countEl = document.getElementById("feed-drawer-count");
     if (!listEl) return;
 
-    var visibleQuakes = getVisibleGeojson().features.slice().sort(function (a, b) {
-        var magB = getNumericMagnitude(b.properties.mag);
-        var magA = getNumericMagnitude(a.properties.mag);
-        if (magB !== magA) {
-            return (magB !== null ? magB : -99) < (magA !== null ? magA : -99) ? 1 : -1;
-        }
-        return b.properties.time - a.properties.time;
-    });
+    var visibleQuakes = getVisibleGeojson().features.slice().sort(compareFeedOrder);
 
     if (countEl) {
         countEl.textContent = visibleQuakes.length + " matching";
@@ -5048,12 +5065,44 @@ function updateTimelapseControls() {
     if (playBtn) {
         playBtn.textContent = isTimelapsePlaying ? "❚❚" : "▶";
     }
+    // The toolbar button does what it says: Pause while playing, Resume while paused (■ in the bar closes it).
+    var label = isTimelapsePlaying ? "Pause Timelapse" : (isTimelapseOpen ? "Resume Timelapse" : "Timelapse");
     if (toggleBtn) {
-        toggleBtn.classList.toggle("is-active", isTimelapsePlaying);
+        toggleBtn.classList.toggle("is-active", isTimelapseOpen);
         toggleBtn.setAttribute("aria-pressed", String(isTimelapsePlaying));
+        toggleBtn.title = isTimelapseOpen ? label : "Play chronological seismic timelapse";
     }
     if (labelEl) {
-        labelEl.textContent = isTimelapsePlaying ? "Pause Timelapse" : "Timelapse";
+        labelEl.textContent = label;
+    }
+}
+
+function getTimelapseSpan() {
+    // A loop, not Math.min.apply: an older range can hold more quakes than a call can take as arguments.
+    var minTime = Infinity, maxTime = -Infinity;
+    currentGeojson.features.forEach(function (f) {
+        var t = f.properties.time;
+        if (t < minTime) minTime = t;
+        if (t > maxTime) maxTime = t;
+    });
+    if (minTime === Infinity) return null;
+    return { minTime: minTime, totalDuration: Math.max(maxTime - minTime, 1) };
+}
+
+function updateTimelapseLabel() {
+    var labelEl = document.getElementById("timelapse-time-label");
+    var span = getTimelapseSpan();
+    if (labelEl && span) {
+        var cutoff = span.minTime + (span.totalDuration * (timelapseProgress / 100));
+        labelEl.textContent = new Date(cutoff).toLocaleString() + " (" + Math.round(timelapseProgress) + "%)";
+    }
+}
+
+function toggleTimelapseFromToolbar() {
+    if (isTimelapsePlaying) {
+        pauseTimelapse();
+    } else {
+        startTimelapse();
     }
 }
 
@@ -5061,16 +5110,12 @@ function startTimelapse() {
     if (!currentGeojson.features.length) return;
     var bar = document.getElementById("timelapse-bar");
     if (bar) bar.hidden = false;
+    isTimelapseOpen = true;
     isTimelapsePlaying = true;
     if (timelapseProgress >= 100) {
         timelapseProgress = 0;
     }
     updateTimelapseControls();
-
-    var sorted = currentGeojson.features.slice().sort(function (a, b) { return a.properties.time - b.properties.time; });
-    var minTime = sorted[0].properties.time;
-    var maxTime = sorted[sorted.length - 1].properties.time;
-    var totalDuration = Math.max(maxTime - minTime, 1);
 
     function step() {
         if (!isTimelapsePlaying) return;
@@ -5083,11 +5128,7 @@ function startTimelapse() {
         if (rangeInput) {
             rangeInput.value = timelapseProgress;
         }
-        var currentCutoff = minTime + (totalDuration * (timelapseProgress / 100));
-        var labelEl = document.getElementById("timelapse-time-label");
-        if (labelEl) {
-            labelEl.textContent = new Date(currentCutoff).toLocaleString() + " (" + Math.round(timelapseProgress) + "%)";
-        }
+        updateTimelapseLabel();
         refreshEarthquakeSource();
         renderFeedDrawer();
         if (isTimelapsePlaying && timelapseProgress < 100) {
@@ -5105,6 +5146,7 @@ function pauseTimelapse() {
 }
 
 function stopTimelapse() {
+    isTimelapseOpen = false;
     pauseTimelapse();
     timelapseProgress = 100;
     var bar = document.getElementById("timelapse-bar");
@@ -6253,7 +6295,7 @@ function startFeedAutoRefresh() {
     feedRefreshTimer = window.setInterval(function () {
         // Skip when the tab is hidden, a request is already in flight,
         // or a timelapse is replaying history.
-        if (document.hidden || activeRequestController || isTimelapsePlaying || !hasSuccessfulFeed) {
+        if (document.hidden || activeRequestController || isTimelapseOpen || !hasSuccessfulFeed) {
             return;
         }
         loadEarthquakeData(currentRange, { silent: true });
@@ -6373,6 +6415,10 @@ window.earthquakeApp.test = {
     startTimelapse: startTimelapse,
     pauseTimelapse: pauseTimelapse,
     stopTimelapse: stopTimelapse,
+    toggleTimelapseFromToolbar: toggleTimelapseFromToolbar,
+    getVisibleGeojson: getVisibleGeojson,
+    compareFeedOrder: compareFeedOrder,
+    mayWhistleFor: mayWhistleFor,
     openGuideModal: openGuideModal,
     closeGuideModal: closeGuideModal
 };
@@ -6573,13 +6619,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Timelapse controls
     var toggleTimelapseBtn = document.getElementById("toggle-timelapse");
     if (toggleTimelapseBtn) {
-        toggleTimelapseBtn.addEventListener("click", function () {
-            if (isTimelapsePlaying) {
-                stopTimelapse();
-            } else {
-                startTimelapse();
-            }
-        });
+        toggleTimelapseBtn.addEventListener("click", toggleTimelapseFromToolbar);
     }
     var playPauseBtn = document.getElementById("timelapse-play-pause");
     if (playPauseBtn) {
@@ -6600,6 +6640,7 @@ document.addEventListener("DOMContentLoaded", function () {
         timelapseRange.addEventListener("input", function (event) {
             timelapseProgress = Number(event.target.value) || 0;
             if (isTimelapsePlaying) pauseTimelapse();
+            updateTimelapseLabel();
             refreshEarthquakeSource();
             renderFeedDrawer();
         });

@@ -1979,6 +1979,77 @@
         }
     });
 
+    // The four Monitor fixes of 21 Nov 2026 (found while writing the library's Reference Shelf)
+    function fixQuake(id, mag, hoursAgo, extra) {
+        var props = { mag: mag, time: Date.now() - hoursAgo * 3600000, place: "Fix test " + id };
+        Object.keys(extra || {}).forEach(function (k) { props[k] = extra[k]; });
+        return helpers.normalizeEarthquakeFeature({ id: id, type: "Feature", geometry: { type: "Point", coordinates: [10, 40, 20] }, properties: props });
+    }
+
+    test("the Feed List lists the strongest quakes first, unknown magnitudes last, newest first on a tie", function () {
+        var list = [fixQuake("weak", 1.2, 1), fixQuake("strong", 6.1, 5), fixQuake("unknown", null, 0), fixQuake("mid-old", 4, 9), fixQuake("mid-new", 4, 2)];
+        var order = list.slice().sort(helpers.compareFeedOrder).map(function (q) { return q.properties.eventId; });
+        assertEqual(order.join(","), "strong,mid-new,mid-old,weak,unknown", "feed order");
+    });
+
+    test("a paused or dragged timelapse keeps showing only the quakes up to the slider", function () {
+        var saved = currentGeojson;
+        // The test page has no toolbar: lend it the three timelapse pieces the controls update.
+        var lent = [["button", "toggle-timelapse"], ["span", "timelapse-btn-label"], ["div", "timelapse-bar"]].filter(function (p) {
+            return !document.getElementById(p[1]);
+        }).map(function (p) {
+            var el = document.createElement(p[0]);
+            el.id = p[1];
+            el.hidden = p[1] === "timelapse-bar";
+            document.body.appendChild(el);
+            return el;
+        });
+        try {
+            currentGeojson = { type: "FeatureCollection", features: [fixQuake("t-old", 3, 10), fixQuake("t-mid", 3, 5), fixQuake("t-new", 3, 0)] };
+            helpers.startTimelapse();
+            helpers.pauseTimelapse();
+            timelapseProgress = 50;
+            var shown = helpers.getVisibleGeojson().features.map(function (q) { return q.properties.eventId; });
+            assert(shown.indexOf("t-new") === -1 && shown.indexOf("t-old") !== -1, "paused at 50%: only the older half shows (" + shown.join(",") + ")");
+            assertEqual(document.getElementById("timelapse-btn-label").textContent, "Resume Timelapse", "toolbar label while paused");
+            helpers.toggleTimelapseFromToolbar();
+            assertEqual(isTimelapsePlaying, true, "the toolbar resumes");
+            helpers.toggleTimelapseFromToolbar();
+            assertEqual(isTimelapsePlaying, false, "the toolbar pauses (it does not end the replay)");
+            assertEqual(document.getElementById("timelapse-bar").hidden, false, "the bar stays open after the toolbar's pause");
+            helpers.stopTimelapse();
+            assertEqual(helpers.getVisibleGeojson().features.length, 3, "■ brings every quake back");
+            assertEqual(document.getElementById("timelapse-btn-label").textContent, "Timelapse", "toolbar label after ■");
+        } finally {
+            helpers.stopTimelapse();
+            currentGeojson = saved;
+            lent.forEach(function (el) { el.remove(); });
+        }
+    });
+
+    test("the squadron never whistles for a yellow, orange or red PAGER quake, nor with audio off", function () {
+        var was = isSeismicAudioEnabled;
+        try {
+            helpers.setSeismicAudioEnabled(true);
+            assertEqual(helpers.mayWhistleFor(fixQuake("w-none", 4, 1)), true, "no alert: whistle");
+            assertEqual(helpers.mayWhistleFor(fixQuake("w-green", 5, 1, { alert: "green" })), true, "green alert: whistle");
+            ["yellow", "orange", "red"].forEach(function (level) {
+                assertEqual(helpers.mayWhistleFor(fixQuake("w-" + level, 6, 1, { alert: level })), false, level + " alert: lamps only");
+            });
+            helpers.setSeismicAudioEnabled(false);
+            assertEqual(helpers.mayWhistleFor(fixQuake("w-muted", 4, 1)), false, "audio off: no whistle");
+        } finally {
+            helpers.setSeismicAudioEnabled(was);
+        }
+    });
+
+    test("USGS 'induced or triggered event' counts as human-induced", function () {
+        var info = helpers.classifyEventOrigin("induced or triggered event", "5 km N of Somewhere");
+        assertEqual(info.isInduced, true, "induced");
+        assertEqual(info.eventOrigin, "induced", "origin");
+        assertEqual(helpers.classifyEventOrigin("earthquake", "5 km N of Somewhere").isInduced, false, "a plain earthquake stays natural");
+    });
+
     var failed = results.filter(function (result) { return !result.passed; });
     var list = document.getElementById("results");
     results.forEach(function (result) {
