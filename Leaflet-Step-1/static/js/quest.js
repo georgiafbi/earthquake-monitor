@@ -1283,7 +1283,10 @@
         var r = rankIndex(state.xp);
         chip.querySelector(".quest-chip-rank").textContent = D.RANKS[r].title;
         chip.querySelector(".quest-chip-xp").textContent = state.xp + " XP";
-        chip.setAttribute("aria-label", "Open your Field Journal: missions, field guide, badges and fleet");
+        // the game's name until the first answer, so a newcomer sees there's a game here (then rank and XP)
+        chip.classList.toggle("is-new", !state.stats.predictions);
+        chip.setAttribute("aria-label", state.stats.predictions ? "Open your Quake Quest Field Journal: missions, field guide, badges and fleet"
+            : "Quake Quest: open the Field Journal, or tap any quake on the globe to play");
         // a dot when there's a ship to choose (the starter, or a promotion pick)
         chip.classList.toggle("has-pick", needsStarter() || picksAvailable() > 0);
     }
@@ -1297,9 +1300,12 @@
         chip.id = "quest-chip";
         chip.type = "button";
         chip.setAttribute("aria-haspopup", "dialog");
-        chip.setAttribute("aria-label", "Open your Field Journal: missions, field guide, badges and fleet");
         chip.appendChild(el("span", "quest-chip-icon", "🧭"));
         var txt = el("span", "quest-chip-text");
+        var name = el("span", "quest-chip-name");
+        name.appendChild(el("span", null, "Quake"));
+        name.appendChild(el("span", null, "Quest"));
+        txt.appendChild(name);
         txt.appendChild(el("span", "quest-chip-rank"));
         txt.appendChild(el("span", "quest-chip-xp"));
         chip.appendChild(txt);

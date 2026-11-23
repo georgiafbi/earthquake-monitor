@@ -18,6 +18,12 @@
 .quest-chip-text { display: grid; line-height: 1.05; text-align: left; }
 .quest-chip-rank { font-size: 0.72rem; font-weight: 800; }
 .quest-chip-xp { font-size: 0.62rem; color: #cbd5e1; }
+/* before the first answer the chip names the game, "Quake / Quest" on two lines, at every screen size */
+.quest-chip-name { display: none; font-size: 0.72rem; font-weight: 800; color: #fde68a; }
+.quest-chip-name > span { display: block; }
+.quest-chip.is-new .quest-chip-name { display: block; }
+.quest-chip.is-new .quest-chip-rank,
+.quest-chip.is-new .quest-chip-xp { display: none !important; }
 
 /* the question in a quake popup */
 .quest-box {

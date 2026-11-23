@@ -21,6 +21,11 @@
     /** Newest first. */
     var CHANGELOG = [
         {
+            v: 17, date: "23 Nov 2026", title: "Quake Quest, by name", items: [
+                "The top of the page now says Quake Quest, and so does the 🧭 button until your first answer. After that it shows your rank and XP, as before."
+            ]
+        },
+        {
             v: 16, date: "21 Nov 2026", title: "Five fixes", items: [
                 "The Feed List now shows the 50 strongest quakes that match your filters, strongest first. Before, it showed the 50 weakest.",
                 "Pausing the timelapse, or dragging its slider, now holds the map at that moment. Before, every quake came back. ■ ends the replay.",
